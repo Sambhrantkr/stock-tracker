@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stock Tracker</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-header">
+        <h1>📈 Stocks</h1>
+        <div style="display:flex;gap:0.3rem;">
+          <button id="about-btn" class="settings-btn" title="About & Roadmap">ℹ️</button>
+          <button id="settings-btn" class="settings-btn" title="API Keys">⚙️</button>
+        </div>
+      </div>
+      <div class="search-container">
+        <input type="text" id="ticker-input" placeholder="Search ticker..." autocomplete="off" aria-label="Search for a stock ticker" />
+        <ul id="suggestions" class="suggestions" role="listbox" aria-label="Stock suggestions"></ul>
+      </div>
+      <div id="stock-list" class="stock-list"></div>
+    </aside>
+
+    <!-- Main detail panel -->
+    <main id="main-panel" class="main-panel">
+      <div id="api-key-banner" class="api-key-banner hidden">
+        <div class="key-row">
+          <p><a href="https://finnhub.io/register" target="_blank" rel="noopener">Finnhub</a> key (required):</p>
+          <input type="text" id="api-key-input" placeholder="Paste Finnhub API key..." aria-label="Finnhub API key" />
+        </div>
+        <div class="key-row">
+          <p><a href="https://console.groq.com/keys" target="_blank" rel="noopener">Groq</a> key (optional, AI):</p>
+          <input type="text" id="groq-key-input" placeholder="Paste Groq API key..." aria-label="Groq API key" />
+        </div>
+        <div class="key-row">
+          <p><a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">Alpha Vantage</a> key (optional):</p>
+          <input type="text" id="av-key-input" placeholder="Paste Alpha Vantage key..." aria-label="Alpha Vantage API key" />
+        </div>
+        <button id="save-key-btn">Save Keys</button>
+      </div>
+      <div id="empty-state" class="empty-state">
+        <p>Select a stock from the sidebar or search to add one.</p>
+      </div>
+      <div id="detail-view" class="detail-view hidden">
+        <!-- Header tile -->
+        <div class="detail-header tile" id="detail-header"></div>
+        <!-- Tiles grid -->
+        <div class="tiles-grid">
+          <div class="tile tile-verdict" id="tile-verdict">
+            <div class="tile-title-row"><span class="tile-title">🎯 AI Analyst Verdict</span><button class="ai-btn" id="detail-verdict-btn" disabled>Generate Verdict</button></div>
+            <div id="detail-verdict-content"><div class="tile-loading">Analyze tiles first, then generate your final verdict.</div></div>
+          </div>
+          <div class="tile tile-chart" id="tile-chart">
+            <div id="tradingview-widget" class="tradingview-container"></div>
+          </div>
+          <div class="tile tile-kpis" id="tile-kpis"><div class="tile-title">Key Metrics</div><div id="detail-kpis" class="kpis"><div class="tile-loading">Loading...</div></div></div>
+          <div class="tile tile-pe" id="tile-pe"><div class="tile-title">P/E Ratio History</div><div class="chart-container"><canvas id="detail-pe-chart"></canvas></div></div>
+          <div class="tile tile-etf-holdings" id="tile-etf-holdings">
+            <div class="tile-title">🏗️ ETF Holdings</div>
+            <div id="detail-etf-holdings"><div class="tile-loading">Loading...</div></div>
+          </div>
+          <div class="tile tile-revenue" id="tile-revenue">
+            <div class="tile-title-row"><span class="tile-title">💰 Revenue & Income Trend</span><button class="ai-btn" id="detail-revenue-btn" disabled>Load</button></div>
+            <div id="detail-revenue-content"><div class="tile-loading">Requires Alpha Vantage key.</div></div>
+          </div>
+          <div class="tile tile-earnings" id="tile-earnings">
+            <div class="tile-title">📅 Earnings & EPS Surprise</div>
+            <div id="detail-earnings-content"><div class="tile-loading">Loading...</div></div>
+          </div>
+          <div class="tile tile-fundamentals" id="tile-fundamentals">
+            <div class="tile-title-row"><span class="tile-title">📊 Company Fundamentals & Sentiment</span><button class="ai-btn" id="detail-fundamentals-btn" disabled>Load & Analyze</button></div>
+            <div id="detail-fundamentals-content"><div class="tile-loading">Click Load & Analyze to view growth, margins, financial health, and sentiment.</div></div>
+          </div>
+          <div class="tile tile-insider" id="tile-insider">
+            <div class="tile-title">🕵️ Insider Trading</div>
+            <div id="detail-insider-content"><div class="tile-loading">Loading...</div></div>
+          </div>
+          <div class="tile tile-ai" id="tile-ai">
+            <div class="tile-title-row"><span class="tile-title">🤖 AI News Summary & Impact</span><button class="ai-btn" id="detail-ai-btn" disabled>Analyze</button></div>
+            <div id="detail-ai-content"><div class="tile-loading">Waiting for data...</div></div>
+          </div>
+          <div class="tile tile-analyst" id="tile-analyst">
+            <div class="tile-title-row"><span class="tile-title">🏦 Analyst Ratings (30 Days)</span><button class="ai-btn" id="detail-analyst-btn" disabled>Summarize</button></div>
+            <div id="detail-analyst-content"><div class="tile-loading">Waiting for data...</div></div>
+          </div>
+          <div class="tile tile-macro" id="tile-macro">
+            <div class="tile-title-row"><span class="tile-title">🌍 Macro & Economy Impact</span><button class="ai-btn" id="detail-macro-btn" disabled>Analyze</button></div>
+            <div id="detail-macro-content"><div class="tile-loading">Waiting for data...</div></div>
+          </div>
+          <div class="tile tile-transcript" id="tile-transcript">
+            <div class="tile-title-row"><span class="tile-title">🎙️ Earnings Call Summary</span><button class="ai-btn" id="detail-transcript-btn" disabled>Summarize</button></div>
+            <div id="detail-transcript-content"><div class="tile-loading">Loading...</div></div>
+          </div>
+          <div class="tile tile-peers" id="tile-peers">
+            <div class="tile-title-row"><span class="tile-title">👥 Peer Comparison</span><button class="ai-btn" id="detail-peers-btn" disabled>Load Peers</button></div>
+            <div id="detail-peers-content"><div class="tile-loading">Click Load Peers to compare KPIs against sector peers.</div></div>
+          </div>
+          <div class="tile tile-news" id="tile-news">
+            <div class="tile-title-row"><span class="tile-title">📰 Latest News</span><button class="ai-btn" id="detail-news-refresh-btn">Refresh</button></div>
+            <div id="detail-news" class="news-list"><div class="tile-loading">Loading...</div></div>
+          </div>
+        </div>
+      </div>
+    </main>
+    <div id="status-bar" class="status-bar hidden"></div>
+    <!-- About modal -->
+    <div id="about-modal" class="about-overlay hidden">
+      <div class="about-modal">
+        <div class="about-header">
+          <span class="about-title">📈 Stock Tracker Dashboard</span>
+          <button id="about-close" class="about-close">&times;</button>
+        </div>
+        <div class="about-body">
+          <div class="about-section">
+            <div class="about-section-title">✅ Current Features</div>
+            <div class="about-grid">
+              <div class="about-card">
+                <div class="about-card-icon">🔍</div>
+                <div class="about-card-title">Smart Search</div>
+                <div class="about-card-desc">Autocomplete ticker search with keyboard navigation. Supports stocks & ETFs.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">📊</div>
+                <div class="about-card-title">Live Quotes & KPIs</div>
+                <div class="about-card-desc">Real-time price, change, P/E, EPS, market cap, beta, dividend yield, 52-week range.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">📈</div>
+                <div class="about-card-title">TradingView Chart</div>
+                <div class="about-card-desc">Full interactive price chart with indicators, drawing tools, and multiple timeframes.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">📉</div>
+                <div class="about-card-title">P/E History</div>
+                <div class="about-card-desc">Historical P/E ratio chart with average line for valuation context.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">🤖</div>
+                <div class="about-card-title">AI News Analysis</div>
+                <div class="about-card-desc">Groq-powered summary of company news with BULLISH/BEARISH outlook, valuation impact factors, and key triggers.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">🏦</div>
+                <div class="about-card-title">Analyst Ratings</div>
+                <div class="about-card-desc">Consensus buy/hold/sell distribution with trend, AI-summarized analyst sentiment and key takeaways.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">🌍</div>
+                <div class="about-card-title">Macro & Economy Impact</div>
+                <div class="about-card-desc">General market news analyzed by AI in the context of your stock — tailwinds, headwinds, and macro risks.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">📰</div>
+                <div class="about-card-title">News Feed</div>
+                <div class="about-card-desc">Latest 15 company news articles with refresh button and auto AI re-analysis on refresh.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">📅</div>
+                <div class="about-card-title">Earnings & EPS Surprise</div>
+                <div class="about-card-desc">Upcoming earnings dates, historical beat/miss record, EPS surprise chart with actual vs estimate trends.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">🔄</div>
+                <div class="about-card-title">Auto-Refresh</div>
+                <div class="about-card-desc">All data refreshes every 60 seconds. Persistent watchlist via localStorage.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">👥</div>
+                <div class="about-card-title">Peer Comparison</div>
+                <div class="about-card-desc">Compare KPIs (P/E, growth, margins, market cap) against sector peers side-by-side with best/worst highlighting.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">📊</div>
+                <div class="about-card-title">Fundamentals & Sentiment</div>
+                <div class="about-card-desc">Revenue growth trends (1Y/3Y/5Y), margin stack, ROE/ROA/ROIC, financial health, workforce, and news sentiment gauge with AI synthesis.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">🕵️</div>
+                <div class="about-card-title">Insider Trading</div>
+                <div class="about-card-desc">Track insider buys/sells with aggregate signal, transaction values, and detailed table. Feeds into AI Analyst Verdict.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">🏗️</div>
+                <div class="about-card-title">ETF Holdings</div>
+                <div class="about-card-desc">Top holdings breakdown with weight bars and table for ETFs. See exactly what you own inside any ETF.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">💰</div>
+                <div class="about-card-title">Revenue & Income Trend</div>
+                <div class="about-card-desc">Quarterly revenue bars + net income line chart via Alpha Vantage. Visual growth story at a glance.</div>
+              </div>
+            </div>
+          </div>
+          <div class="about-section">
+            <div class="about-section-title">🚀 Ideas to Enhance Your Analysis</div>
+            <div class="about-roadmap">
+              <div class="about-roadmap-item high">
+                <span class="about-roadmap-tag">HIGH IMPACT</span>
+                <span class="about-roadmap-label">Portfolio View with Allocation</span>
+                <span class="about-roadmap-desc">Enter shares held, see total portfolio value, allocation %, daily P&L, and sector exposure.</span>
+              </div>
+              <div class="about-roadmap-item medium">
+                <span class="about-roadmap-tag">MEDIUM</span>
+                <span class="about-roadmap-label">SEC Filings Monitor</span>
+                <span class="about-roadmap-desc">Latest 10-K, 10-Q, 8-K filings with AI summary of key changes and risk factors.</span>
+              </div>
+              <div class="about-roadmap-item medium">
+                <span class="about-roadmap-tag">MEDIUM</span>
+                <span class="about-roadmap-label">Technical Indicators Overlay</span>
+                <span class="about-roadmap-desc">RSI, MACD, Bollinger Bands with AI interpretation of current technical setup.</span>
+              </div>
+              <div class="about-roadmap-item medium">
+                <span class="about-roadmap-tag">MEDIUM</span>
+                <span class="about-roadmap-label">Price Alerts</span>
+                <span class="about-roadmap-desc">Set target prices and get browser notifications when thresholds are crossed.</span>
+              </div>
+              <div class="about-roadmap-item low">
+                <span class="about-roadmap-tag">NICE TO HAVE</span>
+                <span class="about-roadmap-label">Social Sentiment (Reddit/X)</span>
+                <span class="about-roadmap-desc">Gauge retail sentiment from social platforms — useful for momentum and meme stocks.</span>
+              </div>
+              <div class="about-roadmap-item low">
+                <span class="about-roadmap-tag">NICE TO HAVE</span>
+                <span class="about-roadmap-label">Export & Reporting</span>
+                <span class="about-roadmap-desc">Export AI analysis, KPIs, and charts as PDF or share via link.</span>
+              </div>
+              <div class="about-roadmap-item low">
+                <span class="about-roadmap-tag">NICE TO HAVE</span>
+                <span class="about-roadmap-label">Watchlist Groups & Tags</span>
+                <span class="about-roadmap-desc">Organize stocks into groups (e.g. Tech, Dividend, Speculative) for faster navigation.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="api.js"></script>
+  <script src="alpha.js"></script>
+  <script src="ai.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
