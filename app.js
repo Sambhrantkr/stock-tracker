@@ -315,18 +315,87 @@
     var grid = document.getElementById('tiles-grid');
     if (!grid) return;
     var order = getSavedTileOrder() || DEFAULT_TILE_ORDER;
+    var hidden = getHiddenTiles();
     // Collect all tile elements
     var tiles = {};
     var children = Array.prototype.slice.call(grid.children);
     children.forEach(function(el) {
       if (el.id && el.classList.contains('tile')) tiles[el.id] = el;
     });
-    // Reorder: append in saved order, then any remaining tiles not in saved order
-    order.forEach(function(id) {
-      if (tiles[id]) { grid.appendChild(tiles[id]); delete tiles[id]; }
+    // Build ordered list: user order first, then any new tiles
+    var orderedIds = [];
+    order.forEach(function(id) { if (tiles[id]) orderedIds.push(id); });
+    Object.keys(tiles).forEach(function(id) { if (orderedIds.indexOf(id) === -1) orderedIds.push(id); });
+
+    // Separate visible tiles into full-width, multi-col, and single-col for optimal packing
+    var fullWidth = []; // 3 cols (1/-1)
+    var multiCol = [];  // 2 cols (span 2)
+    var singleCol = []; // 1 col (span 1)
+    var FULL_TILES = ['tile-verdict','tile-chart','tile-fundamentals','tile-news','tile-peers','tile-correlation','tile-etf-holdings'];
+    var MULTI_TILES = ['tile-about-company','tile-earnings','tile-technicals','tile-cashflow','tile-balancesheet','tile-fair-value'];
+
+    orderedIds.forEach(function(id) {
+      if (hidden.indexOf(id) !== -1) return; // skip hidden
+      var el = tiles[id];
+      if (!el) return;
+      if (el.style.display === 'none') return; // skip ETF-hidden tiles
+      if (FULL_TILES.indexOf(id) !== -1) fullWidth.push(id);
+      else if (MULTI_TILES.indexOf(id) !== -1) multiCol.push(id);
+      else singleCol.push(id);
     });
-    // Append any new tiles not in saved order
-    Object.keys(tiles).forEach(function(id) { grid.appendChild(tiles[id]); });
+
+    // Repack: interleave multi-col and single-col tiles to fill rows
+    // Strategy: place tiles row by row, 3 cols per row
+    var packed = [];
+    var mi = 0, si = 0;
+    // First, add full-width tiles that should be at the top (verdict, chart)
+    var topFull = ['tile-verdict', 'tile-chart'];
+    topFull.forEach(function(id) {
+      if (fullWidth.indexOf(id) !== -1) {
+        packed.push(id);
+        fullWidth.splice(fullWidth.indexOf(id), 1);
+      }
+    });
+
+    // Now pack remaining tiles row by row
+    var colsLeft = 3;
+    while (mi < multiCol.length || si < singleCol.length || fullWidth.length) {
+      if (colsLeft === 3 && fullWidth.length) {
+        // Full-width tile fills entire row
+        packed.push(fullWidth.shift());
+        colsLeft = 3;
+        continue;
+      }
+      if (colsLeft >= 2 && mi < multiCol.length) {
+        packed.push(multiCol[mi++]);
+        colsLeft -= 2;
+      } else if (colsLeft >= 1 && si < singleCol.length) {
+        packed.push(singleCol[si++]);
+        colsLeft -= 1;
+      } else {
+        // Row is full or can't fit anything, start new row
+        if (colsLeft === 3) {
+          // Nothing fits — shouldn't happen, but break to avoid infinite loop
+          if (mi < multiCol.length) { packed.push(multiCol[mi++]); colsLeft = 1; }
+          else break;
+        }
+        colsLeft = 3;
+      }
+      if (colsLeft === 0) colsLeft = 3;
+    }
+    // Add any remaining full-width tiles at the end
+    fullWidth.forEach(function(id) { packed.push(id); });
+
+    // Also add hidden tiles at the end (they won't display but need to stay in DOM)
+    orderedIds.forEach(function(id) {
+      if (packed.indexOf(id) === -1 && tiles[id]) packed.push(id);
+    });
+
+    // Apply the packed order to the DOM
+    packed.forEach(function(id) {
+      if (tiles[id]) grid.appendChild(tiles[id]);
+    });
+
     // Ensure drag handles and minimize buttons exist
     initDragHandles();
     applyCollapsedState();
