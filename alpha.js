@@ -10,7 +10,39 @@ var AlphaAPI = (function() {
   function setKey(key) { if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('av_api_key', key.trim()); else localStorage.setItem('av_api_key', key.trim()); }
   function hasKey() { return getKey().length > 0; }
 
+  // --- AV daily call tracking (25 calls/day free tier) ---
+  var AV_DAILY_LIMIT = 25;
+  function getAVCallLog() {
+    var raw = (typeof Auth !== 'undefined' && Auth.isLoggedIn()) ? Auth.getItem('av_call_log') : localStorage.getItem('av_call_log');
+    if (!raw) return { date: '', count: 0 };
+    try { var d = JSON.parse(raw); return d && d.date ? d : { date: '', count: 0 }; }
+    catch(e) { return { date: '', count: 0 }; }
+  }
+  function saveAVCallLog(log) {
+    var s = JSON.stringify(log);
+    if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('av_call_log', s);
+    else localStorage.setItem('av_call_log', s);
+  }
+  function trackAVCall() {
+    var today = new Date().toISOString().slice(0, 10);
+    var log = getAVCallLog();
+    if (log.date !== today) log = { date: today, count: 0 };
+    log.count++;
+    saveAVCallLog(log);
+    return log.count;
+  }
+  function getAVCallsRemaining() {
+    var today = new Date().toISOString().slice(0, 10);
+    var log = getAVCallLog();
+    if (log.date !== today) return AV_DAILY_LIMIT;
+    return Math.max(0, AV_DAILY_LIMIT - log.count);
+  }
+
   function avGet(params) {
+    if (getAVCallsRemaining() <= 0) {
+      return Promise.reject(new Error('Alpha Vantage daily limit reached (25/day). Resets tomorrow.'));
+    }
+    trackAVCall();
     var url = BASE + '?' + params + '&apikey=' + getKey();
     var controller = new AbortController();
     var timeoutId = setTimeout(function() { controller.abort(); }, 20000);
@@ -21,7 +53,14 @@ var AlphaAPI = (function() {
     }).then(function(data) {
       if (data['Note']) throw new Error('Alpha Vantage rate limit (25/day). Try again tomorrow.');
       if (data['Error Message']) throw new Error('Alpha Vantage: ' + data['Error Message']);
-      if (data['Information'] && data['Information'].indexOf('rate limit') !== -1) throw new Error('Alpha Vantage rate limit (25/day). Try again tomorrow.');
+      if (data['Information']) {
+        if (data['Information'].indexOf('rate limit') !== -1 || data['Information'].indexOf('call frequency') !== -1) {
+          throw new Error('Alpha Vantage rate limit (25/day). Try again tomorrow.');
+        }
+        if (data['Information'].indexOf('Thank you') !== -1 || data['Information'].indexOf('premium') !== -1) {
+          throw new Error('Alpha Vantage: ' + data['Information'].substring(0, 120));
+        }
+      }
       return data;
     }).catch(function(e) {
       clearTimeout(timeoutId);
@@ -230,10 +269,57 @@ var AlphaAPI = (function() {
     } catch (e) { console.warn('AV SMA error:', e.message); return []; }
   }
 
+  /** Cash Flow Statement — quarterly, returns [{date, operatingCashFlow, capitalExpenditure, freeCashFlow, dividendPayout}] */
+  async function getCashFlow(symbol) {
+    if (!hasKey()) return [];
+    try {
+      var data = await avGet('function=CASH_FLOW&symbol=' + encodeURIComponent(symbol));
+      var reports = data.quarterlyReports || data.annualReports || [];
+      if (!reports || !reports.length) return [];
+      return reports.slice(0, 12).map(function(r) {
+        var ocf = r.operatingCashflow && r.operatingCashflow !== 'None' ? parseFloat(r.operatingCashflow) : null;
+        var capex = r.capitalExpenditures && r.capitalExpenditures !== 'None' ? parseFloat(r.capitalExpenditures) : null;
+        var fcf = (ocf !== null && capex !== null) ? ocf - capex : null;
+        return {
+          date: r.fiscalDateEnding || '',
+          operatingCashFlow: ocf,
+          capitalExpenditure: capex,
+          freeCashFlow: fcf,
+          dividendPayout: r.dividendPayout && r.dividendPayout !== 'None' ? parseFloat(r.dividendPayout) : null,
+          netIncome: r.netIncome && r.netIncome !== 'None' ? parseFloat(r.netIncome) : null,
+        };
+      });
+    } catch (e) { console.warn('AV Cash Flow error:', e.message); return []; }
+  }
+
+  /** Balance Sheet — quarterly, returns [{date, totalAssets, totalLiabilities, totalDebt, cash, bookValue, sharesOutstanding}] */
+  async function getBalanceSheet(symbol) {
+    if (!hasKey()) return [];
+    try {
+      var data = await avGet('function=BALANCE_SHEET&symbol=' + encodeURIComponent(symbol));
+      var reports = data.quarterlyReports || data.annualReports || [];
+      if (!reports || !reports.length) return [];
+      return reports.slice(0, 8).map(function(r) {
+        var assets = r.totalAssets && r.totalAssets !== 'None' ? parseFloat(r.totalAssets) : null;
+        var liabilities = r.totalLiabilities && r.totalLiabilities !== 'None' ? parseFloat(r.totalLiabilities) : null;
+        return {
+          date: r.fiscalDateEnding || '',
+          totalAssets: assets,
+          totalLiabilities: liabilities,
+          totalDebt: r.shortLongTermDebtTotal && r.shortLongTermDebtTotal !== 'None' ? parseFloat(r.shortLongTermDebtTotal) : (r.longTermDebt && r.longTermDebt !== 'None' ? parseFloat(r.longTermDebt) : null),
+          cash: r.cashAndCashEquivalentsAtCarryingValue && r.cashAndCashEquivalentsAtCarryingValue !== 'None' ? parseFloat(r.cashAndCashEquivalentsAtCarryingValue) : (r.cashAndShortTermInvestments && r.cashAndShortTermInvestments !== 'None' ? parseFloat(r.cashAndShortTermInvestments) : null),
+          bookValue: (assets !== null && liabilities !== null) ? assets - liabilities : null,
+          sharesOutstanding: r.commonStockSharesOutstanding && r.commonStockSharesOutstanding !== 'None' ? parseFloat(r.commonStockSharesOutstanding) : null,
+        };
+      });
+    } catch (e) { console.warn('AV Balance Sheet error:', e.message); return []; }
+  }
+
   return {
     getKey: getKey,
     setKey: setKey,
     hasKey: hasKey,
+    getAVCallsRemaining: getAVCallsRemaining,
     getEarningsTranscript: getEarningsTranscript,
     guessLatestQuarter: guessLatestQuarter,
     getNewsSentiment: getNewsSentiment,
@@ -242,5 +328,7 @@ var AlphaAPI = (function() {
     getRSI: getRSI,
     getMACD: getMACD,
     getSMA: getSMA,
+    getCashFlow: getCashFlow,
+    getBalanceSheet: getBalanceSheet,
   };
 })();

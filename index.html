@@ -116,7 +116,21 @@
   </div>
 
   <div id="app" class="hidden">
+    <!-- Market Ticker Bar -->
+    <div id="market-ticker" class="market-ticker">
+      <div class="ticker-items" id="ticker-items">
+        <div class="ticker-item" data-symbol="SPY"><span class="ticker-label">S&P 500</span><span class="ticker-price" id="tick-SPY-price">—</span><span class="ticker-change" id="tick-SPY-change">—</span></div>
+        <div class="ticker-item" data-symbol="DIA"><span class="ticker-label">DOW 30</span><span class="ticker-price" id="tick-DIA-price">—</span><span class="ticker-change" id="tick-DIA-change">—</span></div>
+        <div class="ticker-item" data-symbol="QQQ"><span class="ticker-label">NASDAQ</span><span class="ticker-price" id="tick-QQQ-price">—</span><span class="ticker-change" id="tick-QQQ-change">—</span></div>
+        <div class="ticker-item" data-symbol="IWM"><span class="ticker-label">RUSSELL 2K</span><span class="ticker-price" id="tick-IWM-price">—</span><span class="ticker-change" id="tick-IWM-change">—</span></div>
+        <div class="ticker-item" data-symbol="TLT"><span class="ticker-label">BONDS 20Y</span><span class="ticker-price" id="tick-TLT-price">—</span><span class="ticker-change" id="tick-TLT-change">—</span></div>
+        <div class="ticker-item" data-symbol="GLD"><span class="ticker-label">GOLD</span><span class="ticker-price" id="tick-GLD-price">—</span><span class="ticker-change" id="tick-GLD-change">—</span></div>
+        <div class="ticker-item" data-symbol="USO"><span class="ticker-label">OIL</span><span class="ticker-price" id="tick-USO-price">—</span><span class="ticker-change" id="tick-USO-change">—</span></div>
+        <div class="ticker-item" data-symbol="UUP"><span class="ticker-label">USD</span><span class="ticker-price" id="tick-UUP-price">—</span><span class="ticker-change" id="tick-UUP-change">—</span></div>
+      </div>
+    </div>
     <!-- Sidebar -->
+    <div class="app-body">
     <aside id="sidebar" class="sidebar">
       <div class="sidebar-header">
         <h1>📈 Stocks</h1>
@@ -131,6 +145,8 @@
         <ul id="suggestions" class="suggestions" role="listbox" aria-label="Stock suggestions"></ul>
       </div>
       <div id="stock-list" class="stock-list"></div>
+      <button id="morning-report-btn" class="morning-report-btn" title="Run Senior Analyst on all stocks and email the report">📧 Morning Report</button>
+      <div id="morning-report-progress" class="morning-report-progress hidden"></div>
       <div id="sidebar-user" class="sidebar-user"></div>
     </aside>
 
@@ -159,9 +175,11 @@
         <div class="detail-header tile" id="detail-header"></div>
         <!-- Tiles grid -->
         <div class="tiles-grid-controls" id="tiles-grid-controls">
+          <button id="manage-tiles-btn" title="Choose which tiles to show or hide">⚙ Manage Tiles</button>
           <button id="collapse-all-btn" title="Collapse all tiles">▲ Collapse All</button>
           <button id="expand-all-btn" title="Expand all tiles">▼ Expand All</button>
           <button id="reset-layout-btn" title="Reset tile order and expand all">↺ Reset Layout</button>
+          <div class="tile-visibility-panel" id="tile-visibility-panel"></div>
         </div>
         <div class="tiles-grid" id="tiles-grid">
           <div class="tile tile-verdict" id="tile-verdict">
@@ -171,67 +189,99 @@
           <div class="tile tile-chart" id="tile-chart">
             <div id="tradingview-widget" class="tradingview-container"></div>
           </div>
+          <div class="tile tile-kpis" id="tile-kpis"><div class="tile-title">Key Metrics</div><div id="detail-kpis" class="kpis"><div class="tile-loading">Loading...</div></div></div>
+          <div class="tile tile-pe" id="tile-pe"><div class="tile-title">P/E Ratio History</div><div class="chart-container"><canvas id="detail-pe-chart"></canvas></div></div>
+          <div class="tile tile-revenue" id="tile-revenue">
+            <div class="tile-title-row"><span class="tile-title">💰 Revenue & Income</span><button class="ai-btn" id="detail-revenue-btn" disabled>Load</button></div>
+            <div id="detail-revenue-content"><div class="tile-loading">Requires Alpha Vantage key.</div></div>
+          </div>
           <div class="tile tile-about-company" id="tile-about-company">
             <div class="tile-title">🏢 About the Company</div>
             <div id="detail-about-company"><div class="tile-loading">Loading...</div></div>
           </div>
-          <div class="tile tile-kpis" id="tile-kpis"><div class="tile-title">Key Metrics</div><div id="detail-kpis" class="kpis"><div class="tile-loading">Loading...</div></div></div>
-          <div class="tile tile-pe" id="tile-pe"><div class="tile-title">P/E Ratio History</div><div class="chart-container"><canvas id="detail-pe-chart"></canvas></div></div>
-          <div class="tile tile-technicals" id="tile-technicals">
-            <div class="tile-title-row"><span class="tile-title">📐 Technical Indicators</span><button class="ai-btn" id="detail-technicals-btn" disabled>Load & Analyze</button></div>
-            <div id="detail-technicals-content"><div class="tile-loading">Click Load & Analyze to view RSI, MACD, SMA (3 AV calls).</div></div>
-          </div>
-          <div class="tile tile-etf-holdings" id="tile-etf-holdings">
-            <div class="tile-title">🏗️ ETF Holdings</div>
-            <div id="detail-etf-holdings"><div class="tile-loading">Loading...</div></div>
-          </div>
-          <div class="tile tile-revenue" id="tile-revenue">
-            <div class="tile-title-row"><span class="tile-title">💰 Revenue & Income Trend</span><button class="ai-btn" id="detail-revenue-btn" disabled>Load</button></div>
-            <div id="detail-revenue-content"><div class="tile-loading">Requires Alpha Vantage key.</div></div>
+          <div class="tile tile-dividends" id="tile-dividends">
+            <div class="tile-title">💎 Dividends</div>
+            <div id="detail-dividends-content"><div class="tile-loading">Loading...</div></div>
           </div>
           <div class="tile tile-earnings" id="tile-earnings">
             <div class="tile-title">📅 Earnings & EPS Surprise</div>
             <div id="detail-earnings-content"><div class="tile-loading">Loading...</div></div>
           </div>
-          <div class="tile tile-dividends" id="tile-dividends">
-            <div class="tile-title">💎 Dividend History & Growth</div>
-            <div id="detail-dividends-content"><div class="tile-loading">Loading...</div></div>
-          </div>
-          <div class="tile tile-fundamentals" id="tile-fundamentals">
-            <div class="tile-title-row"><span class="tile-title">📊 Company Fundamentals & Sentiment</span><button class="ai-btn" id="detail-fundamentals-btn" disabled>Load & Analyze</button></div>
-            <div id="detail-fundamentals-content"><div class="tile-loading">Click Load & Analyze to view growth, margins, financial health, and sentiment.</div></div>
-          </div>
           <div class="tile tile-insider" id="tile-insider">
             <div class="tile-title">🕵️ Insider Trading</div>
             <div id="detail-insider-content"><div class="tile-loading">Loading...</div></div>
           </div>
+          <div class="tile tile-technicals" id="tile-technicals">
+            <div class="tile-title-row"><span class="tile-title">📐 Technical Indicators</span><button class="ai-btn" id="detail-technicals-btn" disabled>Analyze</button></div>
+            <div id="detail-technicals-content"><div class="tile-loading">Click Analyze for RSI, MACD, SMA (3 AV calls).</div></div>
+          </div>
           <div class="tile tile-sec" id="tile-sec">
-            <div class="tile-title-row"><span class="tile-title">📋 SEC Filings</span><button class="ai-btn" id="detail-sec-btn" disabled>Load Filings</button></div>
-            <div id="detail-sec-content"><div class="tile-loading">Click Load Filings to fetch latest 10-K, 10-Q, 8-K from SEC EDGAR.</div></div>
+            <div class="tile-title-row"><span class="tile-title">📋 SEC Filings</span><button class="ai-btn" id="detail-sec-btn" disabled>Load</button></div>
+            <div id="detail-sec-content"><div class="tile-loading">Click Load to fetch from SEC EDGAR.</div></div>
+          </div>
+          <div class="tile tile-cashflow" id="tile-cashflow">
+            <div class="tile-title-row"><span class="tile-title">💵 Cash Flow Analysis</span><button class="ai-btn" id="detail-cashflow-btn" disabled>Load</button></div>
+            <div id="detail-cashflow-content"><div class="tile-loading">Requires Alpha Vantage key.</div></div>
+          </div>
+          <div class="tile tile-alerts" id="tile-alerts">
+            <div class="tile-title-row"><span class="tile-title">🔔 Price Alerts</span><button class="ai-btn" id="detail-alerts-add-btn">+ Add</button></div>
+            <div id="detail-alerts-content"><div class="tile-loading">Set price targets for notifications.</div></div>
+          </div>
+          <div class="tile tile-balancesheet" id="tile-balancesheet">
+            <div class="tile-title-row"><span class="tile-title">🏦 Balance Sheet</span><button class="ai-btn" id="detail-balancesheet-btn" disabled>Load</button></div>
+            <div id="detail-balancesheet-content"><div class="tile-loading">Requires Alpha Vantage key.</div></div>
           </div>
           <div class="tile tile-ai" id="tile-ai">
-            <div class="tile-title-row"><span class="tile-title">🤖 AI News Summary & Impact</span><button class="ai-btn" id="detail-ai-btn" disabled>Analyze</button></div>
+            <div class="tile-title-row"><span class="tile-title">🤖 AI News Impact</span><button class="ai-btn" id="detail-ai-btn" disabled>Analyze</button></div>
             <div id="detail-ai-content"><div class="tile-loading">Waiting for data...</div></div>
           </div>
+          <div class="tile tile-fundamentals" id="tile-fundamentals">
+            <div class="tile-title-row"><span class="tile-title">📊 Fundamentals & Sentiment</span><button class="ai-btn" id="detail-fundamentals-btn" disabled>Analyze</button></div>
+            <div id="detail-fundamentals-content"><div class="tile-loading">Click Analyze for growth, margins, health, and sentiment.</div></div>
+          </div>
           <div class="tile tile-analyst" id="tile-analyst">
-            <div class="tile-title-row"><span class="tile-title">🏦 Analyst Ratings (30 Days)</span><button class="ai-btn" id="detail-analyst-btn" disabled>Summarize</button></div>
+            <div class="tile-title-row"><span class="tile-title">🏦 Analyst Ratings</span><button class="ai-btn" id="detail-analyst-btn" disabled>Summarize</button></div>
             <div id="detail-analyst-content"><div class="tile-loading">Waiting for data...</div></div>
           </div>
           <div class="tile tile-macro" id="tile-macro">
-            <div class="tile-title-row"><span class="tile-title">🌍 Macro & Economy Impact</span><button class="ai-btn" id="detail-macro-btn" disabled>Analyze</button></div>
+            <div class="tile-title-row"><span class="tile-title">🌍 Macro Impact</span><button class="ai-btn" id="detail-macro-btn" disabled>Analyze</button></div>
             <div id="detail-macro-content"><div class="tile-loading">Waiting for data...</div></div>
           </div>
           <div class="tile tile-transcript" id="tile-transcript">
-            <div class="tile-title-row"><span class="tile-title">🎙️ Earnings Call Summary</span><button class="ai-btn" id="detail-transcript-btn" disabled>Summarize</button></div>
+            <div class="tile-title-row"><span class="tile-title">🎙️ Earnings Call</span><button class="ai-btn" id="detail-transcript-btn" disabled>Summarize</button></div>
             <div id="detail-transcript-content"><div class="tile-loading">Loading...</div></div>
           </div>
           <div class="tile tile-peers" id="tile-peers">
             <div class="tile-title-row"><span class="tile-title">👥 Peer Comparison</span><button class="ai-btn" id="detail-peers-btn" disabled>Load Peers</button></div>
-            <div id="detail-peers-content"><div class="tile-loading">Click Load Peers to compare KPIs against sector peers.</div></div>
+            <div id="detail-peers-content"><div class="tile-loading">Click Load Peers to compare against sector peers.</div></div>
           </div>
-          <div class="tile tile-alerts" id="tile-alerts">
-            <div class="tile-title-row"><span class="tile-title">🔔 Price Alerts</span><button class="ai-btn" id="detail-alerts-add-btn">+ Add Alert</button></div>
-            <div id="detail-alerts-content"><div class="tile-loading">Set target prices to get browser notifications.</div></div>
+          <div class="tile tile-etf-holdings" id="tile-etf-holdings">
+            <div class="tile-title">🏗️ ETF Holdings</div>
+            <div id="detail-etf-holdings"><div class="tile-loading">Loading...</div></div>
+          </div>
+          <div class="tile tile-sector-strength" id="tile-sector-strength">
+            <div class="tile-title">📊 Sector Relative Strength</div>
+            <div id="detail-sector-strength"><div class="tile-loading">Loading...</div></div>
+          </div>
+          <div class="tile tile-val-scorecard" id="tile-val-scorecard">
+            <div class="tile-title">🏷️ Valuation Scorecard</div>
+            <div id="detail-val-scorecard"><div class="tile-loading">Loading...</div></div>
+          </div>
+          <div class="tile tile-eps-estimates" id="tile-eps-estimates">
+            <div class="tile-title-row"><span class="tile-title">📈 EPS Estimate Revisions</span><button class="ai-btn" id="detail-eps-estimates-btn" disabled>Load</button></div>
+            <div id="detail-eps-estimates-content"><div class="tile-loading">Click Load to fetch EPS estimates.</div></div>
+          </div>
+          <div class="tile tile-options-flow" id="tile-options-flow">
+            <div class="tile-title">📉 Options & Volatility</div>
+            <div id="detail-options-flow"><div class="tile-loading">Loading...</div></div>
+          </div>
+          <div class="tile tile-correlation" id="tile-correlation">
+            <div class="tile-title">🔗 Watchlist Correlation</div>
+            <div id="detail-correlation"><div class="tile-loading">Track 2+ stocks to see correlations.</div></div>
+          </div>
+          <div class="tile tile-fair-value" id="tile-fair-value">
+            <div class="tile-title">💎 Fair Value Range</div>
+            <div id="detail-fair-value"><div class="tile-loading">Loading...</div></div>
           </div>
           <div class="tile tile-news" id="tile-news">
             <div class="tile-title-row"><span class="tile-title">📰 Latest News</span><button class="ai-btn" id="detail-news-refresh-btn">Refresh</button></div>
@@ -240,6 +290,7 @@
         </div>
       </div>
     </main>
+    </div><!-- /app-body -->
     <div id="status-bar" class="status-bar hidden"></div>
     <!-- About modal -->
     <div id="about-modal" class="about-overlay hidden">
@@ -353,9 +404,49 @@
                 <div class="about-card-desc">Set above/below price targets with browser notifications. Checked every 60s refresh cycle. Persisted in localStorage.</div>
               </div>
               <div class="about-card">
+                <div class="about-card-icon">💵</div>
+                <div class="about-card-title">Cash Flow Analysis</div>
+                <div class="about-card-desc">Operating cash flow, capital expenditures, free cash flow, dividends paid, and buybacks over multiple years via Alpha Vantage. Feeds into DCF valuation.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">🏦</div>
+                <div class="about-card-title">Balance Sheet Snapshot</div>
+                <div class="about-card-desc">Total assets, liabilities, equity, cash position, long-term and short-term debt, and book value trends via Alpha Vantage.</div>
+              </div>
+              <div class="about-card">
                 <div class="about-card-icon">🔐</div>
                 <div class="about-card-title">Google Sign-In</div>
                 <div class="about-card-desc">Sign in with Google to isolate your API keys and watchlist. Each user gets private, scoped data stored locally in the browser.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">📊</div>
+                <div class="about-card-title">Sector Relative Strength</div>
+                <div class="about-card-desc">Bar chart showing stock YTD return vs 52-week range position. Visual gauge of relative momentum.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">🏷️</div>
+                <div class="about-card-title">Valuation Scorecard</div>
+                <div class="about-card-desc">Composite 1-10 score from P/E, P/B, P/S, and PEG ratios vs historical norms. Cheap / Fair / Expensive badge.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">📈</div>
+                <div class="about-card-title">EPS Estimate Revisions</div>
+                <div class="about-card-desc">Track analyst EPS estimate trends — rising estimates signal improving outlook, falling estimates warn of trouble ahead.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">📉</div>
+                <div class="about-card-title">Options & Volatility</div>
+                <div class="about-card-desc">Implied volatility proxy from beta and 52-week range. Shows expected move range and volatility assessment.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">🔗</div>
+                <div class="about-card-title">Watchlist Correlation</div>
+                <div class="about-card-desc">Heatmap showing price change correlation between your tracked stocks. Helps with portfolio diversification.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">💎</div>
+                <div class="about-card-title">Fair Value Range</div>
+                <div class="about-card-desc">Visual chart plotting current price against historical P/E-derived fair value band. See if the stock is above or below its intrinsic range.</div>
               </div>
             </div>
           </div>

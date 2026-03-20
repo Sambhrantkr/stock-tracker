@@ -13,9 +13,23 @@ const StockAPI = (() => {
   function onStatus(cb) { statusCb = cb; }
   function status(msg) { if (statusCb) statusCb(msg); }
 
+  // --- Finnhub API call tracking (60 calls/min free tier) ---
+  var fhCallLog = [];
+  function trackFHCall() {
+    var now = Date.now();
+    fhCallLog.push(now);
+    while (fhCallLog.length && fhCallLog[0] < now - 60000) fhCallLog.shift();
+  }
+  function getFHCallsInLastMinute() {
+    var now = Date.now();
+    while (fhCallLog.length && fhCallLog[0] < now - 60000) fhCallLog.shift();
+    return fhCallLog.length;
+  }
+
   async function fhGet(path) {
-    const sep = path.includes('?') ? '&' : '?';
-    const url = `${BASE}${path}${sep}token=${getKey()}`;
+    var sep = path.indexOf('?') !== -1 ? '&' : '?';
+    var url = BASE + path + sep + 'token=' + getKey();
+    trackFHCall();
     var res;
     try {
       var controller = new AbortController();
@@ -28,6 +42,20 @@ const StockAPI = (() => {
     }
     if (res.status === 429) throw new Error('Finnhub rate limit (60/min). Wait a moment and try again.');
     if (res.status === 401 || res.status === 403) throw new Error('Invalid Finnhub API key. Check Settings.');
+    // Retry once on server errors (5xx)
+    if (res.status >= 500) {
+      await new Promise(function(r) { setTimeout(r, 2000); });
+      trackFHCall();
+      try {
+        var controller2 = new AbortController();
+        var timeoutId2 = setTimeout(function() { controller2.abort(); }, 15000);
+        res = await fetch(url, { signal: controller2.signal });
+        clearTimeout(timeoutId2);
+      } catch (e2) {
+        throw new Error('Finnhub server error (retry failed): ' + (e2.message || ''));
+      }
+      if (!res.ok) throw new Error('Finnhub server error: HTTP ' + res.status);
+    }
     if (!res.ok) throw new Error('Finnhub HTTP ' + res.status);
     var data;
     try {
@@ -441,39 +469,91 @@ const StockAPI = (() => {
   async function getSECFilings(symbol) {
     status('SEC filings ' + symbol + '\u2026');
     try {
-      var tickerUrl = 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=&CIK=' + encodeURIComponent(symbol) + '&type=10-K%2C10-Q%2C8-K&dateb=&owner=include&count=15&search_text=&action=getcompany&output=atom';
-      var res = await fetchViaProxy(tickerUrl);
-      var text = await res.text();
-      status('');
       var filings = [];
-      var parser = new DOMParser();
-      var doc = parser.parseFromString(text, 'text/xml');
-      var parseError = doc.querySelector('parsererror');
-      if (parseError) throw new Error('Could not parse SEC EDGAR response.');
-      var entries = doc.querySelectorAll('entry');
-      entries.forEach(function(entry) {
-        var title = entry.querySelector('title') ? entry.querySelector('title').textContent : '';
-        var link = entry.querySelector('link');
-        var href = link ? link.getAttribute('href') : '';
-        var updated = entry.querySelector('updated') ? entry.querySelector('updated').textContent : '';
-        var summary = entry.querySelector('summary') ? entry.querySelector('summary').textContent : '';
-        var typeMatch = title.match(/^(10-K|10-Q|8-K)/);
-        var filingType = typeMatch ? typeMatch[1] : '';
-        if (filingType) {
-          filings.push({
-            date: updated ? updated.slice(0, 10) : '',
-            type: filingType,
-            title: title,
-            url: href.indexOf('http') === 0 ? href : 'https://www.sec.gov' + href,
-            summary: summary.replace(/<[^>]+>/g, '').trim().slice(0, 300),
+
+      // Primary: SEC EFTS full-text search API (CORS-friendly, JSON)
+      try {
+        var controller = new AbortController();
+        var timeoutId = setTimeout(function() { controller.abort(); }, 12000);
+        var res = await fetch('https://efts.sec.gov/LATEST/search-index?q=%22' + encodeURIComponent(symbol) + '%22&forms=10-K,10-Q,8-K', {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+          var data = await res.json();
+          var hits = (data.hits && data.hits.hits) ? data.hits.hits : [];
+          hits.forEach(function(hit) {
+            var src = hit._source || {};
+            var form = src.form_type || '';
+            if (form === '10-K' || form === '10-Q' || form === '8-K') {
+              filings.push({
+                date: src.file_date || '',
+                type: form,
+                title: form + (src.file_description ? ' \u2014 ' + src.file_description : ''),
+                url: src.file_num ? 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=' + encodeURIComponent(symbol) + '&type=' + form + '&dateb=&owner=include&count=5&search_text=&action=getcompany' : '',
+                accessionNo: src.adsh || '',
+              });
+            }
           });
         }
-      });
+      } catch(e) { /* EFTS failed, try fallback */ }
+
+      // Fallback: proxy-based EDGAR atom feed
+      if (!filings.length) {
+        var tickerUrl = 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=&CIK=' + encodeURIComponent(symbol) + '&type=10-K%2C10-Q%2C8-K&dateb=&owner=include&count=15&search_text=&action=getcompany&output=atom';
+        var proxyRes = await fetchViaProxy(tickerUrl);
+        var text = await proxyRes.text();
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(text, 'text/xml');
+        if (!doc.querySelector('parsererror')) {
+          doc.querySelectorAll('entry').forEach(function(entry) {
+            var title = entry.querySelector('title') ? entry.querySelector('title').textContent : '';
+            var link = entry.querySelector('link');
+            var href = link ? link.getAttribute('href') : '';
+            var updated = entry.querySelector('updated') ? entry.querySelector('updated').textContent : '';
+            var typeMatch = title.match(/^(10-K|10-Q|8-K)/);
+            if (typeMatch) {
+              filings.push({
+                date: updated ? updated.slice(0, 10) : '',
+                type: typeMatch[1],
+                title: title,
+                url: href.indexOf('http') === 0 ? href : 'https://www.sec.gov' + href,
+              });
+            }
+          });
+        }
+      }
+
+      status('');
       if (!filings.length) throw new Error('No SEC filings found for ' + symbol + '. Try a US-listed stock.');
       return filings.slice(0, 15);
     } catch (e) {
       status('');
       throw e;
+    }
+  }
+
+  /** EPS Estimates — returns {annual: [{period, avg, high, low, numAnalysts}], quarterly: [...]} */
+  async function getEPSEstimates(symbol) {
+    status('EPS estimates ' + symbol + '\u2026');
+    try {
+      var data = await fhGet('/stock/eps-estimate?symbol=' + encodeURIComponent(symbol) + '&freq=quarterly');
+      status('');
+      if (!data || !data.data || !Array.isArray(data.data)) return null;
+      var quarterly = data.data.slice(0, 8).map(function(e) {
+        return {
+          period: e.period || '',
+          avg: e.epsAvg != null ? e.epsAvg : null,
+          high: e.epsHigh != null ? e.epsHigh : null,
+          low: e.epsLow != null ? e.epsLow : null,
+          numAnalysts: e.numberAnalysts || 0,
+        };
+      });
+      return { quarterly: quarterly };
+    } catch (e) {
+      status('');
+      console.warn('EPS estimates error:', e.message);
+      return null;
     }
   }
 
@@ -483,5 +563,6 @@ const StockAPI = (() => {
     getNews, getEarnings, computePEHistory, getRecommendations,
     getUpgradeDowngrade, getChartData, getMarketNews, getEarningsCalendar,
     getPeers, getInsiderTransactions, getETFHoldings, getSECFilings,
+    getEPSEstimates, getFHCallsInLastMinute,
   };
 })();
