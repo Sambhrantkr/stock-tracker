@@ -100,6 +100,16 @@
   if (aboutBtn) aboutBtn.addEventListener('click', function() { aboutModal.classList.remove('hidden'); });
   if (aboutClose) aboutClose.addEventListener('click', function() { aboutModal.classList.add('hidden'); });
   if (aboutModal) aboutModal.addEventListener('click', function(e) { if (e.target === aboutModal) aboutModal.classList.add('hidden'); });
+  var guideModal = document.getElementById('guide-modal');
+  var guideClose = document.getElementById('guide-close');
+  var guideBtn = document.getElementById('guide-btn');
+  var loginGuideBtn = document.getElementById('login-guide-btn');
+  function openGuide() { if (guideModal) guideModal.classList.remove('hidden'); }
+  function closeGuide() { if (guideModal) guideModal.classList.add('hidden'); }
+  if (guideBtn) guideBtn.addEventListener('click', openGuide);
+  if (loginGuideBtn) loginGuideBtn.addEventListener('click', openGuide);
+  if (guideClose) guideClose.addEventListener('click', closeGuide);
+  if (guideModal) guideModal.addEventListener('click', function(e) { if (e.target === guideModal) closeGuide(); });
   keyInput.addEventListener('focus', function() { if (keyInput.value.indexOf('\u2022') === 0) keyInput.value = ''; });
   groqKeyInput.addEventListener('focus', function() { if (groqKeyInput.value.indexOf('\u2022') === 0) groqKeyInput.value = ''; });
   avKeyInput.addEventListener('focus', function() { if (avKeyInput.value.indexOf('\u2022') === 0) avKeyInput.value = ''; });
@@ -235,7 +245,195 @@
     renders.forEach(function(fn) {
       try { fn(); } catch (e) { console.warn('Render error:', e.message); }
     });
+    applyTileOrder();
   }
+  // --- Tile drag-and-drop reordering ---
+  var DEFAULT_TILE_ORDER = [
+    'tile-verdict','tile-chart','tile-about-company','tile-kpis','tile-pe',
+    'tile-technicals','tile-etf-holdings','tile-revenue','tile-earnings',
+    'tile-dividends','tile-fundamentals','tile-insider','tile-sec',
+    'tile-ai','tile-analyst','tile-macro','tile-transcript','tile-peers',
+    'tile-alerts','tile-news'
+  ];
+  var dragSrcEl = null;
+
+  function getSavedTileOrder() {
+    var saved = userGet('tile_order', null);
+    if (!saved || !Array.isArray(saved) || !saved.length) return null;
+    return saved;
+  }
+
+  function saveTileOrder(order) {
+    userSet('tile_order', order);
+  }
+
+  function getCurrentTileOrder() {
+    var grid = document.getElementById('tiles-grid');
+    if (!grid) return DEFAULT_TILE_ORDER.slice();
+    var order = [];
+    var children = grid.children;
+    for (var i = 0; i < children.length; i++) {
+      if (children[i].id && children[i].classList.contains('tile')) {
+        order.push(children[i].id);
+      }
+    }
+    return order;
+  }
+
+  function applyTileOrder() {
+    var grid = document.getElementById('tiles-grid');
+    if (!grid) return;
+    var order = getSavedTileOrder() || DEFAULT_TILE_ORDER;
+    // Collect all tile elements
+    var tiles = {};
+    var children = Array.prototype.slice.call(grid.children);
+    children.forEach(function(el) {
+      if (el.id && el.classList.contains('tile')) tiles[el.id] = el;
+    });
+    // Reorder: append in saved order, then any remaining tiles not in saved order
+    order.forEach(function(id) {
+      if (tiles[id]) { grid.appendChild(tiles[id]); delete tiles[id]; }
+    });
+    // Append any new tiles not in saved order
+    Object.keys(tiles).forEach(function(id) { grid.appendChild(tiles[id]); });
+    // Ensure drag handles and minimize buttons exist
+    initDragHandles();
+    applyCollapsedState();
+  }
+
+  function getCollapsedTiles() {
+    return userGet('collapsed_tiles', []);
+  }
+  function saveCollapsedTiles(arr) {
+    userSet('collapsed_tiles', arr);
+  }
+  function toggleCollapse(tile) {
+    var collapsed = getCollapsedTiles();
+    var id = tile.id;
+    var idx = collapsed.indexOf(id);
+    if (idx >= 0) {
+      collapsed.splice(idx, 1);
+      tile.classList.remove('collapsed');
+    } else {
+      collapsed.push(id);
+      tile.classList.add('collapsed');
+    }
+    saveCollapsedTiles(collapsed);
+    // Update button text
+    var btn = tile.querySelector('.tile-minimize-btn');
+    if (btn) btn.textContent = tile.classList.contains('collapsed') ? '▼' : '▲';
+  }
+  function applyCollapsedState() {
+    var grid = document.getElementById('tiles-grid');
+    if (!grid) return;
+    var collapsed = getCollapsedTiles();
+    var tiles = grid.querySelectorAll('.tile');
+    tiles.forEach(function(tile) {
+      if (collapsed.indexOf(tile.id) >= 0) {
+        tile.classList.add('collapsed');
+      } else {
+        tile.classList.remove('collapsed');
+      }
+      var btn = tile.querySelector('.tile-minimize-btn');
+      if (btn) btn.textContent = tile.classList.contains('collapsed') ? '▼' : '▲';
+    });
+  }
+
+  function initDragHandles() {
+    var grid = document.getElementById('tiles-grid');
+    if (!grid) return;
+    var tiles = grid.querySelectorAll('.tile');
+    tiles.forEach(function(tile) {
+      if (tile.querySelector('.tile-drag-handle')) return; // already has handle
+      var handle = document.createElement('span');
+      handle.className = 'tile-drag-handle';
+      handle.textContent = '⠿';
+      handle.title = 'Drag to reorder';
+      handle.setAttribute('aria-label', 'Drag to reorder tile');
+      tile.insertBefore(handle, tile.firstChild);
+
+      var minBtn = document.createElement('button');
+      minBtn.className = 'tile-minimize-btn';
+      minBtn.textContent = tile.classList.contains('collapsed') ? '▼' : '▲';
+      minBtn.title = 'Collapse / Expand';
+      minBtn.setAttribute('aria-label', 'Collapse or expand tile');
+      minBtn.addEventListener('click', function(e) { e.stopPropagation(); toggleCollapse(tile); });
+      tile.insertBefore(minBtn, tile.firstChild);
+
+      tile.setAttribute('draggable', 'false');
+
+      // Drag starts from handle only
+      handle.addEventListener('mousedown', function() { tile.setAttribute('draggable', 'true'); });
+      handle.addEventListener('touchstart', function() { tile.setAttribute('draggable', 'true'); }, { passive: true });
+
+      tile.addEventListener('dragstart', function(e) {
+        dragSrcEl = tile;
+        tile.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', tile.id);
+      });
+      tile.addEventListener('dragend', function() {
+        tile.classList.remove('dragging');
+        tile.setAttribute('draggable', 'false');
+        dragSrcEl = null;
+        // Remove all drag-over states
+        grid.querySelectorAll('.drag-over').forEach(function(el) { el.classList.remove('drag-over'); });
+      });
+      tile.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (dragSrcEl && dragSrcEl !== tile) tile.classList.add('drag-over');
+      });
+      tile.addEventListener('dragleave', function() {
+        tile.classList.remove('drag-over');
+      });
+      tile.addEventListener('drop', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        tile.classList.remove('drag-over');
+        if (!dragSrcEl || dragSrcEl === tile) return;
+        // Determine drop position: before or after target
+        var rect = tile.getBoundingClientRect();
+        var midY = rect.top + rect.height / 2;
+        if (e.clientY < midY) {
+          grid.insertBefore(dragSrcEl, tile);
+        } else {
+          grid.insertBefore(dragSrcEl, tile.nextSibling);
+        }
+        saveTileOrder(getCurrentTileOrder());
+      });
+    });
+  }
+
+  // Reset layout button
+  var resetLayoutBtn = document.getElementById('reset-layout-btn');
+  if (resetLayoutBtn) {
+    resetLayoutBtn.addEventListener('click', function() {
+      userSet('tile_order', DEFAULT_TILE_ORDER);
+      saveCollapsedTiles([]);
+      if (selectedSymbol) applyTileOrder();
+    });
+  }
+  var collapseAllBtn = document.getElementById('collapse-all-btn');
+  if (collapseAllBtn) {
+    collapseAllBtn.addEventListener('click', function() {
+      var grid = document.getElementById('tiles-grid');
+      if (!grid) return;
+      var all = [];
+      grid.querySelectorAll('.tile').forEach(function(t) { all.push(t.id); t.classList.add('collapsed'); var b = t.querySelector('.tile-minimize-btn'); if (b) b.textContent = '▼'; });
+      saveCollapsedTiles(all);
+    });
+  }
+  var expandAllBtn = document.getElementById('expand-all-btn');
+  if (expandAllBtn) {
+    expandAllBtn.addEventListener('click', function() {
+      var grid = document.getElementById('tiles-grid');
+      if (!grid) return;
+      grid.querySelectorAll('.tile').forEach(function(t) { t.classList.remove('collapsed'); var b = t.querySelector('.tile-minimize-btn'); if (b) b.textContent = '▲'; });
+      saveCollapsedTiles([]);
+    });
+  }
+
   function renderDetailHeader(symbol, c, s) {
     var el = document.getElementById('detail-header');
     var q = c.quote, name = (c.profile && c.profile.name) || s.name || '';
@@ -301,7 +499,51 @@
       var ageMin = Math.round((Date.now() - c._dataLoadedAt) / 60000);
       freshNote = '<div style="font-size:0.6rem;color:var(--muted);margin-top:0.3rem;">Data last refreshed: ' + (ageMin < 1 ? 'just now' : ageMin + ' min ago') + '. Verdict will auto-refresh if data is older than 10 min.</div>';
     }
-    contentEl.innerHTML = '<div class="tile-loading">Click Generate Verdict. The senior analyst will auto-refresh stale data and run all AI tiles first.</div>' + freshNote;
+    var inv = buildDataInventory(c);
+    var invNote = '<div style="font-size:0.6rem;color:var(--muted);margin-top:0.3rem;">' + inv.available.length + ' data sources loaded.';
+    if (inv.missing.length) invNote += ' Missing: ' + inv.missing.slice(0, 5).join(', ') + (inv.missing.length > 5 ? '...' : '') + '.';
+    invNote += '</div>';
+    contentEl.innerHTML = '<div class="tile-loading">Click Generate Verdict. The senior analyst will auto-refresh stale data and run all AI tiles first.</div>' + freshNote + invNote;
+  }
+
+  function buildDataInventory(c) {
+    var available = [];
+    var missing = [];
+    var stale = [];
+    var ageMin = c._dataLoadedAt ? Math.round((Date.now() - c._dataLoadedAt) / 60000) : -1;
+
+    // Core data
+    if (c.quote) available.push('Quote'); else missing.push('Quote');
+    if (c.profile && c.profile.name) available.push('Profile'); else missing.push('Profile');
+    if (c.financials && c.financials.peRatio) available.push('Financials'); else missing.push('Financials');
+    if (c.articles && c.articles.length) available.push('News (' + c.articles.length + ')'); else missing.push('News');
+    if (c.recommendations && c.recommendations.length) available.push('Analyst Ratings'); else missing.push('Analyst Ratings');
+    if (c.earnings && c.earnings.length) available.push('Earnings (' + c.earnings.length + 'Q)'); else missing.push('Earnings');
+    if (c.macroArticles && c.macroArticles.length) available.push('Macro News'); else missing.push('Macro News');
+    if (c.insiderTrades && c.insiderTrades.length) available.push('Insider Trades'); else missing.push('Insider Trades');
+
+    // Optional data
+    if (c.avOverview && c.avOverview.Description) available.push('Company Overview');
+    if (c.avSentiment && c.avSentiment.length) available.push('Sentiment');
+    if (c.rsiData && c.rsiData.length) available.push('RSI');
+    if (c.macdData && c.macdData.length) available.push('MACD');
+    if (c.sma50Data && c.sma50Data.length) available.push('SMA');
+    if (c.secFilings && c.secFilings.length) available.push('SEC Filings');
+    if (c.peers && c.peers.length) available.push('Peers (' + c.peers.length + ')');
+
+    // AI analyses
+    if (c.aiResult) available.push('AI News'); else if (c.articles && c.articles.length) stale.push('AI News');
+    if (c.analystAIResult) available.push('AI Analyst'); else if (c.recommendations && c.recommendations.length) stale.push('AI Analyst');
+    if (c.macroAIResult) available.push('AI Macro'); else if (c.macroArticles && c.macroArticles.length) stale.push('AI Macro');
+    if (c.transcriptAIResult) available.push('AI Transcript');
+    if (c.fundamentalsResult) available.push('AI Fundamentals');
+    if (c.technicalsResult) available.push('AI Technicals');
+
+    var freshness = ageMin < 0 ? 'unknown' : ageMin < 1 ? 'just now' : ageMin + ' min ago';
+    var summary = 'Data: ' + freshness + ' | ' + available.length + ' sources loaded';
+    if (missing.length) summary += ' | Missing: ' + missing.join(', ');
+
+    return { available: available, missing: missing, stale: stale, ageMin: ageMin, summary: summary };
   }
 
   async function runVerdict(symbol) {
@@ -332,32 +574,47 @@
     try {
       // News AI
       if (c.articles && c.articles.length && !c.aiResult && NewsAI.hasKey()) {
-        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 Analyzing news...</div>';
+        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 1/5 Analyzing news...</div>';
         await runAIAnalysis(symbol);
         await delay(3000);
         c = cache[symbol];
       }
       // Analyst AI
       if (((c.recommendations && c.recommendations.length) || (c.upgrades && c.upgrades.length)) && !c.analystAIResult && NewsAI.hasKey()) {
-        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 Analyzing analyst ratings...</div>';
+        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 2/5 Analyzing analyst ratings...</div>';
         await runAnalystAnalysis(symbol);
         await delay(3000);
         c = cache[symbol];
       }
       // Macro AI
       if (c.macroArticles && c.macroArticles.length && !c.macroAIResult && NewsAI.hasKey()) {
-        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 Analyzing macro impact...</div>';
+        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 3/5 Analyzing macro impact...</div>';
         await runMacroAnalysis(symbol);
+        await delay(3000);
+        c = cache[symbol];
+      }
+      // Transcript AI
+      if (!c.transcriptAIResult && NewsAI.hasKey()) {
+        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 4/5 Analyzing earnings call...</div>';
+        try { await runTranscriptSummary(symbol); } catch(e) { console.warn('Transcript AI:', e.message); }
+        await delay(3000);
+        c = cache[symbol];
+      }
+      // Fundamentals AI
+      if (!c.fundamentalsResult && NewsAI.hasKey() && AlphaAPI.hasKey()) {
+        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 5/5 Analyzing fundamentals...</div>';
+        try { await loadFundamentalsData(symbol); } catch(e) { console.warn('Fundamentals AI:', e.message); }
         await delay(3000);
         c = cache[symbol];
       }
     } catch (e) {
       console.warn('Pre-verdict AI error:', e.message);
-      // Continue to verdict even if some AI tiles fail
     }
 
+    // Build data inventory for the analyst
     btn.textContent = 'Analyzing\u2026';
-    contentEl.innerHTML = '<div class="tile-loading">\uD83C\uDFAF Senior analyst is reviewing all data for ' + symbol + '...</div>';
+    var inventory = buildDataInventory(c);
+    contentEl.innerHTML = '<div class="tile-loading">\uD83C\uDFAF Senior analyst reviewing all data for ' + symbol + '...<br><span style="font-size:0.65rem;color:var(--muted);">' + inventory.summary + '</span></div>';
     try {
       c.verdictResult = await NewsAI.generateVerdict(
         symbol,
@@ -422,6 +679,10 @@
         h += '<tr><td class="ai-table-factor">' + r.risk + '</td><td><span class="ai-impact-badge ' + r.severity + '">' + r.severity + '</span></td><td class="ai-table-detail">' + r.mitigation + '</td></tr>';
       });
       h += '</tbody></table>';
+    }
+
+    if (v.dataQuality) {
+      h += '<div class="verdict-data-quality">\uD83D\uDCCA Data Quality: ' + v.dataQuality + '</div>';
     }
 
     h += '<div class="verdict-disclaimer">This is AI-generated analysis for informational purposes only. Not financial advice. Always do your own research before making investment decisions.</div>';
@@ -2167,17 +2428,25 @@
     } catch (e) {
       cache[symbol].recommendations = cache[symbol].recommendations || [];
     }
-    try {
-      cache[symbol].upgrades = await StockAPI.getUpgradeDowngrade(symbol) || [];
-    } catch (e) {
-      cache[symbol].upgrades = cache[symbol].upgrades || [];
-    }
+    // Note: /stock/upgrade-downgrade is premium-only, skip to save API calls
+    if (!cache[symbol].upgrades) cache[symbol].upgrades = [];
   }
+
+  // --- Shared macro news cache (same for all stocks, fetch once per cycle) ---
+  var sharedMacroCache = { articles: null, fetchedAt: 0 };
 
   async function loadMacroNews(symbol) {
     if (!cache[symbol]) cache[symbol] = {};
+    // Reuse shared macro cache if fresh (< 5 min)
+    if (sharedMacroCache.articles && (Date.now() - sharedMacroCache.fetchedAt) < 300000) {
+      cache[symbol].macroArticles = sharedMacroCache.articles;
+      return;
+    }
     try {
-      cache[symbol].macroArticles = await StockAPI.getMarketNews();
+      var articles = await StockAPI.getMarketNews();
+      sharedMacroCache.articles = articles;
+      sharedMacroCache.fetchedAt = Date.now();
+      cache[symbol].macroArticles = articles;
     } catch (e) {
       cache[symbol].macroArticles = cache[symbol].macroArticles || [];
       throw e;
@@ -2237,12 +2506,15 @@
     renderSidebar();
     if (selectedSymbol === symbol) renderDetail(symbol);
 
-    try {
-      await loadProfileAndFinancials(symbol, type);
-    } catch (e) {
-      errors.push('Profile: ' + e.message);
+    // Profile & financials rarely change — skip if already cached
+    if (!c.profile || !c.financials) {
+      try {
+        await loadProfileAndFinancials(symbol, type);
+      } catch (e) {
+        errors.push('Profile: ' + e.message);
+      }
+      if (selectedSymbol === symbol) renderDetail(symbol);
     }
-    if (selectedSymbol === symbol) renderDetail(symbol);
 
     var dataLoaders = [];
     dataLoaders.push(loadNews(symbol).catch(function(e) { errors.push('News: ' + e.message); }));
@@ -2253,6 +2525,14 @@
       dataLoaders.push(loadETFHoldings(symbol).catch(function(e) { errors.push('ETF: ' + e.message); }));
     } else {
       dataLoaders.push(loadInsiderData(symbol).catch(function(e) { errors.push('Insider: ' + e.message); }));
+      // Fetch AV overview for About Company tile (1 AV call)
+      if (AlphaAPI.hasKey() && (!cache[symbol] || !cache[symbol].avOverview)) {
+        dataLoaders.push(
+          AlphaAPI.getOverview(symbol).then(function(ov) {
+            if (ov && ov.Symbol) { if (!cache[symbol]) cache[symbol] = {}; cache[symbol].avOverview = ov; }
+          }).catch(function(e) { errors.push('AV Overview: ' + e.message); })
+        );
+      }
     }
     await Promise.all(dataLoaders);
     if (selectedSymbol === symbol) renderDetail(symbol);
@@ -2335,21 +2615,94 @@
   function delay(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
 
   // --- Auto-refresh ---
+  // Finnhub free tier: 60 calls/min
+  // Budget per cycle (60s):
+  //   Fast (every 60s): quote only — 1 call/stock = 15 calls for 15 stocks
+  //   Medium (every 5 min): quote + news — 2 calls/stock = 30 calls (macro shared = +1)
+  //   Full (every 15 min): batched — 5 stocks/cycle over 3 cycles = ~7 calls/stock × 5 = 35 calls/cycle
   var refreshInProgress = false;
+  var refreshCycleCount = 0;
+  var fullRefreshBatch = 0; // tracks which batch of stocks to full-refresh
+
   async function refreshAll() {
     if (!StockAPI.hasKey() || !trackedStocks.length || refreshInProgress) return;
     refreshInProgress = true;
+    refreshCycleCount++;
+    var total = trackedStocks.length;
+    var isFull = (refreshCycleCount % 15 === 0);
+    var isMedium = !isFull && (refreshCycleCount % 5 === 0);
     var failedStocks = [];
-    for (var i = 0; i < trackedStocks.length; i++) {
-      var s = trackedStocks[i];
-      try {
-        await loadStockData(s.symbol, s.type);
-      } catch (e) {
-        console.warn('Refresh error for ' + s.symbol + ':', e.message);
-        failedStocks.push(s.symbol);
+
+    if (isFull) {
+      // Full refresh — batch 5 stocks per cycle to stay under 60 calls/min
+      // ~7 calls/stock × 5 = 35 calls, leaves headroom
+      var batchSize = 5;
+      var startIdx = (fullRefreshBatch * batchSize) % total;
+      fullRefreshBatch++;
+      var batch = [];
+      for (var b = 0; b < Math.min(batchSize, total); b++) {
+        batch.push(trackedStocks[(startIdx + b) % total]);
       }
-      // Stagger between stocks to avoid Finnhub 60 calls/min limit
-      if (i < trackedStocks.length - 1) await delay(2000);
+      for (var i = 0; i < batch.length; i++) {
+        try {
+          await loadStockData(batch[i].symbol, batch[i].type);
+        } catch (e) {
+          failedStocks.push(batch[i].symbol);
+        }
+        if (i < batch.length - 1) await delay(1500);
+      }
+      // Fast-refresh the rest so sidebar prices stay current
+      for (var j = 0; j < total; j++) {
+        var sym = trackedStocks[j].symbol;
+        if (batch.find(function(b) { return b.symbol === sym; })) continue;
+        try {
+          await loadQuote(sym).catch(function() {});
+          renderSidebar();
+          if (selectedSymbol === sym) {
+            renderDetailHeader(sym, cache[sym] || {}, trackedStocks[j]);
+            renderDetailKPIs(sym, cache[sym] || {}, trackedStocks[j]);
+          }
+        } catch(e) {}
+        if (j < total - 1) await delay(200);
+      }
+    } else if (isMedium) {
+      // Medium refresh — quote + news for all, macro once
+      // Prefetch shared macro news (1 call)
+      try { await loadMacroNews(trackedStocks[0].symbol); } catch(e) {}
+      for (var i = 0; i < total; i++) {
+        var s = trackedStocks[i];
+        var sym = s.symbol;
+        try {
+          await loadQuote(sym).catch(function() {});
+          await loadNews(sym).catch(function() {});
+          if (!cache[sym]) cache[sym] = {};
+          // Copy shared macro
+          if (sharedMacroCache.articles) cache[sym].macroArticles = sharedMacroCache.articles;
+          cache[sym]._dataLoadedAt = Date.now();
+          renderSidebar();
+          if (selectedSymbol === sym) renderDetail(sym);
+        } catch (e) {
+          failedStocks.push(sym);
+        }
+        if (i < total - 1) await delay(300);
+      }
+      checkPriceAlerts();
+    } else {
+      // Fast refresh — quote only for all stocks
+      for (var i = 0; i < total; i++) {
+        var s = trackedStocks[i];
+        var sym = s.symbol;
+        try {
+          await loadQuote(sym).catch(function() {});
+          renderSidebar();
+          if (selectedSymbol === sym) {
+            renderDetailHeader(sym, cache[sym] || {}, s);
+            renderDetailKPIs(sym, cache[sym] || {}, s);
+          }
+        } catch(e) {}
+        if (i < total - 1) await delay(200);
+      }
+      checkPriceAlerts();
     }
     refreshInProgress = false;
     if (failedStocks.length) {
@@ -2470,13 +2823,20 @@
     requestNotificationPermission();
     renderSidebar();
     if (trackedStocks.length) {
-      trackedStocks.forEach(function(s) {
-        loadStockData(s.symbol, s.type).catch(function(e) {
-          console.warn('Init load error for ' + s.symbol + ':', e.message);
-        });
-      });
       selectStock(trackedStocks[0].symbol);
-      startAutoRefresh();
+      // Load stocks sequentially to stay within 60 calls/min
+      (async function() {
+        for (var i = 0; i < trackedStocks.length; i++) {
+          var s = trackedStocks[i];
+          try {
+            await loadStockData(s.symbol, s.type);
+          } catch(e) {
+            console.warn('Init load error for ' + s.symbol + ':', e.message);
+          }
+          if (i < trackedStocks.length - 1) await delay(1500);
+        }
+        startAutoRefresh();
+      })();
     } else {
       showEmpty();
     }

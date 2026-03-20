@@ -263,6 +263,12 @@ Keep valuationImpact to 2-4 items max. Keep keyTriggers to 1-3 items max. Be spe
 
     var sections = '';
 
+    // Data freshness header
+    var ageMin = allData._dataLoadedAt ? Math.round((Date.now() - allData._dataLoadedAt) / 60000) : -1;
+    sections += 'DATA FRESHNESS: ' + (ageMin < 0 ? 'Unknown' : ageMin < 1 ? 'Just refreshed' : ageMin + ' minutes ago') + '\n';
+    var today = new Date();
+    sections += 'ANALYSIS DATE: ' + today.toISOString().split('T')[0] + '\n\n';
+
     // Quote
     if (allData.quote) {
       var q = allData.quote;
@@ -488,7 +494,34 @@ Keep valuationImpact to 2-4 items max. Keep keyTriggers to 1-3 items max. Be spe
       sections += '\n';
     }
 
-    var prompt = 'You are a senior trade analyst at a top investment bank with 20+ years of experience. Based on ALL the following data for ' + symbol + ' (' + (companyName || symbol) + '), provide your final investment verdict.\n\n' + sections + 'Respond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "verdict": "STRONG BUY" or "BUY" or "HOLD" or "SELL" or "STRONG SELL",\n  "confidence": "HIGH" or "MEDIUM" or "LOW",\n  "priceTarget": <number - your 12-month price target>,\n  "timeHorizon": "12 months",\n  "summary": "3-4 sentence executive summary of your investment thesis",\n  "verdictReason": "2-3 sentences explaining why you chose this specific verdict and price target",\n  "bull": [\n    "1 sentence bull case point"\n  ],\n  "bear": [\n    "1 sentence bear case point"\n  ],\n  "catalysts": [\n    {\n      "event": "specific upcoming catalyst",\n      "timeline": "when (e.g. Q2 2025, Next 3 months)",\n      "impact": "HIGH" or "MEDIUM" or "LOW"\n    }\n  ],\n  "risks": [\n    {\n      "risk": "specific risk",\n      "severity": "HIGH" or "MEDIUM" or "LOW",\n      "mitigation": "1 sentence on what could mitigate this"\n    }\n  ]\n}\n\nKeep bull to 3-4 points. Keep bear to 2-3 points. Keep catalysts to 2-3 items. Keep risks to 2-3 items.\nBe SPECIFIC with numbers. Your price target must be a realistic number based on the data. Show your conviction.';
+    // Data completeness audit
+    var dataAvail = [];
+    var dataMissing = [];
+    if (allData.quote) dataAvail.push('Live Quote'); else dataMissing.push('Live Quote');
+    if (allData.profile) dataAvail.push('Company Profile'); else dataMissing.push('Company Profile');
+    if (allData.financials) dataAvail.push('Financial Metrics'); else dataMissing.push('Financial Metrics');
+    if (allData.earnings && allData.earnings.length) dataAvail.push('Earnings History'); else dataMissing.push('Earnings History');
+    if (allData.recommendations && allData.recommendations.length) dataAvail.push('Analyst Ratings'); else dataMissing.push('Analyst Ratings');
+    if (allData.articles && allData.articles.length) dataAvail.push('Company News'); else dataMissing.push('Company News');
+    if (allData.macroArticles && allData.macroArticles.length) dataAvail.push('Macro News'); else dataMissing.push('Macro News');
+    if (allData.insiderTrades && allData.insiderTrades.length) dataAvail.push('Insider Trades'); else dataMissing.push('Insider Trades');
+    if (allData.aiResult) dataAvail.push('AI News Analysis'); else dataMissing.push('AI News Analysis');
+    if (allData.analystAIResult) dataAvail.push('AI Analyst Summary'); else dataMissing.push('AI Analyst Summary');
+    if (allData.macroAIResult) dataAvail.push('AI Macro Impact'); else dataMissing.push('AI Macro Impact');
+    if (allData.transcriptAIResult) dataAvail.push('Earnings Call Summary'); else dataMissing.push('Earnings Call Summary');
+    if (allData.fundamentalsResult) dataAvail.push('Fundamentals Analysis'); else dataMissing.push('Fundamentals Analysis');
+    if (allData.technicalsResult) dataAvail.push('Technical Analysis'); else dataMissing.push('Technical Analysis');
+    if (allData.avOverview) dataAvail.push('Company Overview'); else dataMissing.push('Company Overview');
+    if (allData.peers && allData.peers.length) dataAvail.push('Peer Comparison'); else dataMissing.push('Peer Comparison');
+    if (allData.secFilings && allData.secFilings.length) dataAvail.push('SEC Filings'); else dataMissing.push('SEC Filings');
+    if (allData.rsiData && allData.rsiData.length) dataAvail.push('RSI/MACD/SMA');
+
+    sections += 'DATA COMPLETENESS AUDIT:\n';
+    sections += '  Available (' + dataAvail.length + '/' + (dataAvail.length + dataMissing.length) + '): ' + dataAvail.join(', ') + '\n';
+    if (dataMissing.length) sections += '  Missing: ' + dataMissing.join(', ') + '\n';
+    sections += '  NOTE: Factor missing data into your confidence level. Lower confidence if key data is unavailable.\n\n';
+
+    var prompt = 'You are a senior trade analyst at a top investment bank with 20+ years of experience. Based on ALL the following data for ' + symbol + ' (' + (companyName || symbol) + '), provide your final investment verdict.\n\nIMPORTANT: Check the DATA FRESHNESS and DATA COMPLETENESS AUDIT sections. If data is stale (>30 min) or key sources are missing, lower your confidence accordingly. Only give HIGH confidence when you have fresh, comprehensive data.\n\n' + sections + 'Respond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "verdict": "STRONG BUY" or "BUY" or "HOLD" or "SELL" or "STRONG SELL",\n  "confidence": "HIGH" or "MEDIUM" or "LOW",\n  "priceTarget": <number - your 12-month price target>,\n  "timeHorizon": "12 months",\n  "summary": "3-4 sentence executive summary of your investment thesis",\n  "verdictReason": "2-3 sentences explaining why you chose this specific verdict and price target",\n  "dataQuality": "1 sentence noting data freshness and any gaps that affected your analysis",\n  "bull": [\n    "1 sentence bull case point"\n  ],\n  "bear": [\n    "1 sentence bear case point"\n  ],\n  "catalysts": [\n    {\n      "event": "specific upcoming catalyst",\n      "timeline": "when (e.g. Q2 2025, Next 3 months)",\n      "impact": "HIGH" or "MEDIUM" or "LOW"\n    }\n  ],\n  "risks": [\n    {\n      "risk": "specific risk",\n      "severity": "HIGH" or "MEDIUM" or "LOW",\n      "mitigation": "1 sentence on what could mitigate this"\n    }\n  ]\n}\n\nKeep bull to 3-4 points. Keep bear to 2-3 points. Keep catalysts to 2-3 items. Keep risks to 2-3 items.\nBe SPECIFIC with numbers. Your price target must be a realistic number based on the data. Show your conviction.';
 
     var result = await groqFetch([{ role: 'user', content: prompt }], 1000, 0.4);
     // Attach current price for upside calc

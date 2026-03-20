@@ -25,7 +25,93 @@
           OAuth 2.0 Client ID (Web), add your site URL to Authorized JavaScript Origins.
         </p>
       </div>
+      <button class="login-guide-btn" id="login-guide-btn">📖 How to Get Your API Keys</button>
       <p class="login-privacy">Your API keys and data are stored locally in your browser, scoped to your Google account. Nothing is sent to any server.</p>
+    </div>
+  </div>
+
+  <!-- Setup Guide Modal -->
+  <div id="guide-modal" class="guide-overlay hidden">
+    <div class="guide-modal">
+      <div class="guide-header">
+        <span class="guide-title">📖 API Keys Setup Guide</span>
+        <button id="guide-close" class="about-close">&times;</button>
+      </div>
+      <div class="guide-body">
+
+        <div class="guide-section">
+          <div class="guide-section-num">1</div>
+          <div class="guide-section-content">
+            <div class="guide-section-title">🔐 Google OAuth Client ID <span class="guide-tag required">Required for login</span></div>
+            <div class="guide-steps">
+              <div class="guide-step">Go to <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a></div>
+              <div class="guide-step">Click <strong>Select a project</strong> (top bar) → <strong>New Project</strong> → name it anything (e.g. "Stock Tracker") → <strong>Create</strong></div>
+              <div class="guide-step">In the left menu, go to <strong>APIs &amp; Services</strong> → <strong>OAuth consent screen</strong></div>
+              <div class="guide-step">Choose <strong>External</strong> → <strong>Create</strong>. Fill in App name, your email for support &amp; developer contact. Click <strong>Save and Continue</strong> through all steps.</div>
+              <div class="guide-step">Go to <strong>APIs &amp; Services</strong> → <strong>Credentials</strong> → <strong>+ Create Credentials</strong> → <strong>OAuth client ID</strong></div>
+              <div class="guide-step">Application type: <strong>Web application</strong>. Under <strong>Authorized JavaScript origins</strong>, add your GitHub Pages URL (e.g. <code>https://yourusername.github.io</code>) — no trailing slash, no path.</div>
+              <div class="guide-step">Click <strong>Create</strong>. Copy the <strong>Client ID</strong> (looks like <code>123456789-abc.apps.googleusercontent.com</code>).</div>
+              <div class="guide-step">Paste it in the login screen's Client ID field.</div>
+            </div>
+            <div class="guide-note">⚡ The consent screen may say "unverified app" — that's fine for personal use. Click "Advanced" → "Go to app" to proceed.</div>
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <div class="guide-section-num">2</div>
+          <div class="guide-section-content">
+            <div class="guide-section-title">📊 Finnhub API Key <span class="guide-tag required">Required</span></div>
+            <div class="guide-steps">
+              <div class="guide-step">Go to <a href="https://finnhub.io/register" target="_blank" rel="noopener">finnhub.io/register</a></div>
+              <div class="guide-step">Sign up with email or Google (free).</div>
+              <div class="guide-step">After login, your API key is shown on the <a href="https://finnhub.io/dashboard" target="_blank" rel="noopener">Dashboard</a> page.</div>
+              <div class="guide-step">Copy the key and paste it in the app's ⚙️ Settings panel.</div>
+            </div>
+            <div class="guide-note">Free tier: 60 API calls/minute. Enough for tracking ~15-20 stocks with auto-refresh.</div>
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <div class="guide-section-num">3</div>
+          <div class="guide-section-content">
+            <div class="guide-section-title">🤖 Groq API Key <span class="guide-tag optional">Optional — AI features</span></div>
+            <div class="guide-steps">
+              <div class="guide-step">Go to <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a></div>
+              <div class="guide-step">Sign up (free) with Google, GitHub, or email.</div>
+              <div class="guide-step">Click <strong>Create API Key</strong> → name it anything → <strong>Submit</strong>.</div>
+              <div class="guide-step">Copy the key immediately (it won't be shown again). Paste it in ⚙️ Settings.</div>
+            </div>
+            <div class="guide-note">Free tier: 14,400 requests/day. Powers AI news analysis, analyst summaries, macro impact, earnings call summaries, and the AI Analyst Verdict.</div>
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <div class="guide-section-num">4</div>
+          <div class="guide-section-content">
+            <div class="guide-section-title">📈 Alpha Vantage API Key <span class="guide-tag optional">Optional — extra data</span></div>
+            <div class="guide-steps">
+              <div class="guide-step">Go to <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co/support/#api-key</a></div>
+              <div class="guide-step">Fill in your name, email, and pick "Free" plan. Click <strong>Get Free API Key</strong>.</div>
+              <div class="guide-step">Your key appears on screen and is emailed to you. Paste it in ⚙️ Settings.</div>
+            </div>
+            <div class="guide-note">Free tier: 25 calls/day. Used for company overview, earnings transcripts, technical indicators (RSI/MACD/SMA), and revenue trends. Use sparingly — buttons load on-demand.</div>
+          </div>
+        </div>
+
+        <div class="guide-summary">
+          <div class="guide-summary-title">Quick Summary</div>
+          <table class="guide-summary-table">
+            <thead><tr><th>Key</th><th>Required?</th><th>Free Tier</th><th>Powers</th></tr></thead>
+            <tbody>
+              <tr><td>Google OAuth</td><td>Yes (login)</td><td>Unlimited</td><td>User authentication &amp; data isolation</td></tr>
+              <tr><td>Finnhub</td><td>Yes</td><td>60 calls/min</td><td>Quotes, profiles, news, earnings, peers, insider data</td></tr>
+              <tr><td>Groq</td><td>No</td><td>14,400/day</td><td>All AI analysis tiles &amp; verdict</td></tr>
+              <tr><td>Alpha Vantage</td><td>No</td><td>25/day</td><td>Company overview, transcripts, technicals, revenue</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
     </div>
   </div>
 
@@ -35,6 +121,7 @@
       <div class="sidebar-header">
         <h1>📈 Stocks</h1>
         <div style="display:flex;gap:0.3rem;">
+          <button id="guide-btn" class="settings-btn" title="Setup Guide">📖</button>
           <button id="about-btn" class="settings-btn" title="About & Roadmap">ℹ️</button>
           <button id="settings-btn" class="settings-btn" title="API Keys">⚙️</button>
         </div>
@@ -71,7 +158,12 @@
         <!-- Header tile -->
         <div class="detail-header tile" id="detail-header"></div>
         <!-- Tiles grid -->
-        <div class="tiles-grid">
+        <div class="tiles-grid-controls" id="tiles-grid-controls">
+          <button id="collapse-all-btn" title="Collapse all tiles">▲ Collapse All</button>
+          <button id="expand-all-btn" title="Expand all tiles">▼ Expand All</button>
+          <button id="reset-layout-btn" title="Reset tile order and expand all">↺ Reset Layout</button>
+        </div>
+        <div class="tiles-grid" id="tiles-grid">
           <div class="tile tile-verdict" id="tile-verdict">
             <div class="tile-title-row"><span class="tile-title">🎯 AI Analyst Verdict</span><button class="ai-btn" id="detail-verdict-btn" disabled>Generate Verdict</button></div>
             <div id="detail-verdict-content"><div class="tile-loading">Analyze tiles first, then generate your final verdict.</div></div>

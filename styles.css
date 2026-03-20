@@ -123,8 +123,40 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .tile {
   background: var(--card); border: 1px solid var(--border);
   border-radius: 10px; padding: 1rem; transition: border-color 0.2s;
+  position: relative;
 }
 .tile:hover { border-color: var(--accent); }
+.tile-drag-handle {
+  position: absolute; top: 0.45rem; right: 0.45rem; cursor: grab;
+  color: var(--muted); font-size: 0.7rem; opacity: 0; transition: opacity 0.15s;
+  padding: 0.2rem 0.3rem; border-radius: 4px; user-select: none; z-index: 2;
+  background: var(--card);
+}
+.tile:hover .tile-drag-handle { opacity: 0.6; }
+.tile-drag-handle:hover { opacity: 1 !important; color: var(--accent-hover); background: var(--bg); }
+.tile-drag-handle:active { cursor: grabbing; }
+.tile-minimize-btn {
+  position: absolute; top: 0.45rem; right: 1.6rem; cursor: pointer;
+  color: var(--muted); font-size: 0.6rem; opacity: 0; transition: opacity 0.15s;
+  padding: 0.2rem 0.35rem; border-radius: 4px; user-select: none; z-index: 2;
+  background: var(--card); border: none; line-height: 1;
+}
+.tile:hover .tile-minimize-btn { opacity: 0.6; }
+.tile-minimize-btn:hover { opacity: 1 !important; color: var(--accent-hover); background: var(--bg); }
+.tile.collapsed > *:not(.tile-drag-handle):not(.tile-minimize-btn):not(.tile-title):not(.tile-title-row) { display: none; }
+.tile.collapsed { padding: 0.6rem 1rem; min-height: 0; }
+.tile.collapsed .tile-title-row .ai-btn { display: none; }
+.tile.dragging { opacity: 0.4; border: 1px dashed var(--accent); }
+.tile.drag-over { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(99,102,241,0.3); }
+.tiles-grid-controls {
+  display: flex; justify-content: flex-end; margin-bottom: 0.4rem; gap: 0.4rem;
+}
+.tiles-grid-controls button {
+  background: none; border: 1px solid var(--border); color: var(--muted);
+  font-size: 0.65rem; padding: 0.2rem 0.5rem; border-radius: 4px; cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.tiles-grid-controls button:hover { border-color: var(--accent); color: var(--accent-hover); }
 .tile-title {
   font-size: 0.72rem; font-weight: 600; text-transform: uppercase;
   letter-spacing: 0.5px; color: var(--muted); margin-bottom: 0.6rem;
@@ -543,6 +575,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
   border-left: 2px solid var(--border);
   margin-bottom: 0.2rem;
 }
+.verdict-data-quality {
+  font-size: 0.68rem; color: var(--muted); margin-top: 0.6rem;
+  padding: 0.4rem 0.6rem; background: rgba(99,102,241,0.08);
+  border-left: 2px solid var(--accent); border-radius: 0 4px 4px 0;
+  line-height: 1.5;
+}
 .verdict-disclaimer {
   font-size: 0.55rem; color: var(--muted); opacity: 0.7;
   margin-top: 0.5rem; font-style: italic;
@@ -660,6 +698,74 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
   transition: border-color 0.15s, color 0.15s;
 }
 .user-logout-btn:hover { border-color: var(--red); color: var(--red); }
+
+/* Setup Guide modal */
+.guide-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 310;
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(4px);
+}
+.guide-overlay.hidden { display: none; }
+.guide-modal {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  width: 94vw; max-width: 640px; max-height: 88vh; display: flex; flex-direction: column;
+}
+.guide-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1rem 1.2rem; border-bottom: 1px solid var(--border);
+}
+.guide-title { font-size: 1rem; font-weight: 700; }
+.guide-body { overflow-y: auto; padding: 1.2rem; display: flex; flex-direction: column; gap: 1.2rem; }
+.guide-section {
+  display: flex; gap: 0.8rem; padding: 1rem; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 10px;
+}
+.guide-section-num {
+  flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%;
+  background: var(--accent); color: #fff; font-weight: 700; font-size: 0.82rem;
+  display: flex; align-items: center; justify-content: center; margin-top: 0.1rem;
+}
+.guide-section-content { flex: 1; min-width: 0; }
+.guide-section-title { font-size: 0.85rem; font-weight: 700; margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.guide-tag {
+  font-size: 0.6rem; font-weight: 600; padding: 0.15rem 0.45rem; border-radius: 4px;
+  text-transform: uppercase; letter-spacing: 0.03em;
+}
+.guide-tag.required { background: rgba(239,68,68,0.15); color: #fca5a5; }
+.guide-tag.optional { background: rgba(34,197,94,0.15); color: #86efac; }
+.guide-steps { display: flex; flex-direction: column; gap: 0.35rem; }
+.guide-step {
+  font-size: 0.75rem; color: var(--text); line-height: 1.55;
+  padding-left: 1rem; position: relative;
+}
+.guide-step::before {
+  content: '→'; position: absolute; left: 0; color: var(--accent);
+}
+.guide-step a { color: var(--accent-hover); }
+.guide-step code {
+  background: rgba(99,102,241,0.15); color: var(--accent-hover);
+  padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.7rem;
+}
+.guide-step strong { color: #e2e8f0; font-weight: 600; }
+.guide-note {
+  margin-top: 0.5rem; font-size: 0.68rem; color: var(--muted);
+  line-height: 1.5; padding: 0.4rem 0.6rem; background: rgba(245,158,11,0.08);
+  border-left: 2px solid #f59e0b; border-radius: 0 4px 4px 0;
+}
+.guide-summary { padding: 0.8rem; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; }
+.guide-summary-title { font-size: 0.82rem; font-weight: 700; margin-bottom: 0.5rem; }
+.guide-summary-table { width: 100%; border-collapse: collapse; font-size: 0.7rem; }
+.guide-summary-table th {
+  text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border);
+  color: var(--muted); font-weight: 600; font-size: 0.65rem; text-transform: uppercase;
+}
+.guide-summary-table td { padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border); color: var(--text); }
+.login-guide-btn {
+  background: none; border: 1px solid var(--border); color: var(--muted);
+  padding: 0.45rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.75rem;
+  margin-bottom: 0.8rem; transition: border-color 0.15s, color 0.15s;
+}
+.login-guide-btn:hover { border-color: var(--accent); color: var(--accent-hover); }
 
 /* About Company tile */
 .tile-about-company { grid-column: 1 / -1; }
