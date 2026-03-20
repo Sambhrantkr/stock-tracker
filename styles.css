@@ -128,7 +128,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .tile:hover { border-color: var(--accent); }
 .tile-drag-handle {
   position: absolute; top: 0.45rem; right: 0.45rem; cursor: grab;
-  color: var(--muted); font-size: 0.7rem; opacity: 0; transition: opacity 0.15s;
+  color: var(--muted); font-size: 0.7rem; opacity: 0.25; transition: opacity 0.15s;
   padding: 0.2rem 0.3rem; border-radius: 4px; user-select: none; z-index: 2;
   background: var(--card);
 }
@@ -137,7 +137,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .tile-drag-handle:active { cursor: grabbing; }
 .tile-minimize-btn {
   position: absolute; top: 0.45rem; right: 1.6rem; cursor: pointer;
-  color: var(--muted); font-size: 0.6rem; opacity: 0; transition: opacity 0.15s;
+  color: var(--muted); font-size: 0.6rem; opacity: 0.25; transition: opacity 0.15s;
   padding: 0.2rem 0.35rem; border-radius: 4px; user-select: none; z-index: 2;
   background: var(--card); border: none; line-height: 1;
 }
