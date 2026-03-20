@@ -12,10 +12,24 @@
   var saveKeyBtn = document.getElementById('save-key-btn');
   var settingsBtn = document.getElementById('settings-btn');
 
-  var trackedStocks = JSON.parse(localStorage.getItem('tracked_stocks') || '[]');
-  if (trackedStocks.length && typeof trackedStocks[0] === 'string') {
-    trackedStocks = trackedStocks.map(function(s) { return { symbol: s, type: 'Equity' }; });
-    saveTracked();
+  // --- User-scoped storage helpers ---
+  function userGet(key, fallback) {
+    var raw = Auth.isLoggedIn() ? Auth.getItem(key) : localStorage.getItem(key);
+    if (raw == null) return fallback !== undefined ? fallback : null;
+    try { return JSON.parse(raw); } catch(e) { return raw; }
+  }
+  function userSet(key, value) {
+    var str = typeof value === 'string' ? value : JSON.stringify(value);
+    if (Auth.isLoggedIn()) Auth.setItem(key, str); else localStorage.setItem(key, str);
+  }
+
+  var trackedStocks = [];
+  function loadTrackedStocks() {
+    trackedStocks = userGet('tracked_stocks', []);
+    if (trackedStocks.length && typeof trackedStocks[0] === 'string') {
+      trackedStocks = trackedStocks.map(function(s) { return { symbol: s, type: 'Equity' }; });
+      saveTracked();
+    }
   }
   var selectedSymbol = null;
   var peChart = null;
@@ -25,6 +39,42 @@
   var cache = {};
 
   StockAPI.onStatus(function(msg) { statusBar.textContent = msg; statusBar.classList.toggle('hidden', !msg); });
+
+  // --- Error toast notification system ---
+  var toastContainer = null;
+  var toastTimeout = null;
+  function showError(msg, duration) {
+    if (!toastContainer) {
+      toastContainer = document.createElement('div');
+      toastContainer.id = 'error-toast-container';
+      toastContainer.style.cssText = 'position:fixed;top:1rem;right:1rem;z-index:200;display:flex;flex-direction:column;gap:0.4rem;max-width:380px;';
+      document.body.appendChild(toastContainer);
+    }
+    var toast = document.createElement('div');
+    toast.style.cssText = 'background:#2a1215;border:1px solid var(--red,#ef4444);color:#fca5a5;padding:0.6rem 0.8rem;border-radius:8px;font-size:0.75rem;line-height:1.4;box-shadow:0 4px 12px rgba(0,0,0,0.4);display:flex;align-items:flex-start;gap:0.4rem;animation:slideIn 0.2s ease-out;';
+    toast.innerHTML = '<span style="flex-shrink:0;">⚠️</span><span style="flex:1;">' + msg + '</span><button style="background:none;border:none;color:#fca5a5;cursor:pointer;font-size:1rem;padding:0;line-height:1;flex-shrink:0;" onclick="this.parentElement.remove()">&times;</button>';
+    toastContainer.appendChild(toast);
+    var removeTimer = setTimeout(function() { if (toast.parentElement) toast.remove(); }, duration || 6000);
+    toast.querySelector('button').addEventListener('click', function() { clearTimeout(removeTimer); });
+    // Limit to 4 visible toasts
+    while (toastContainer.children.length > 4) { toastContainer.removeChild(toastContainer.firstChild); }
+  }
+
+  function showWarning(msg, duration) {
+    if (!toastContainer) {
+      toastContainer = document.createElement('div');
+      toastContainer.id = 'error-toast-container';
+      toastContainer.style.cssText = 'position:fixed;top:1rem;right:1rem;z-index:200;display:flex;flex-direction:column;gap:0.4rem;max-width:380px;';
+      document.body.appendChild(toastContainer);
+    }
+    var toast = document.createElement('div');
+    toast.style.cssText = 'background:#2a2010;border:1px solid #f59e0b;color:#fcd34d;padding:0.6rem 0.8rem;border-radius:8px;font-size:0.75rem;line-height:1.4;box-shadow:0 4px 12px rgba(0,0,0,0.4);display:flex;align-items:flex-start;gap:0.4rem;animation:slideIn 0.2s ease-out;';
+    toast.innerHTML = '<span style="flex-shrink:0;">⚡</span><span style="flex:1;">' + msg + '</span><button style="background:none;border:none;color:#fcd34d;cursor:pointer;font-size:1rem;padding:0;line-height:1;flex-shrink:0;" onclick="this.parentElement.remove()">&times;</button>';
+    toastContainer.appendChild(toast);
+    var removeTimer = setTimeout(function() { if (toast.parentElement) toast.remove(); }, duration || 5000);
+    toast.querySelector('button').addEventListener('click', function() { clearTimeout(removeTimer); });
+    while (toastContainer.children.length > 4) { toastContainer.removeChild(toastContainer.firstChild); }
+  }
 
   // --- API Keys ---
   saveKeyBtn.addEventListener('click', function() {
@@ -53,7 +103,7 @@
   keyInput.addEventListener('focus', function() { if (keyInput.value.indexOf('\u2022') === 0) keyInput.value = ''; });
   groqKeyInput.addEventListener('focus', function() { if (groqKeyInput.value.indexOf('\u2022') === 0) groqKeyInput.value = ''; });
   avKeyInput.addEventListener('focus', function() { if (avKeyInput.value.indexOf('\u2022') === 0) avKeyInput.value = ''; });
-  function saveTracked() { localStorage.setItem('tracked_stocks', JSON.stringify(trackedStocks)); }
+  function saveTracked() { userSet('tracked_stocks', trackedStocks); }
 
   // --- Search ---
   input.addEventListener('input', function() {
@@ -76,7 +126,16 @@
   }
   async function doSearch(q) {
     if (!StockAPI.hasKey()) { banner.classList.remove('hidden'); return; }
-    try { showSuggestions(await StockAPI.searchTicker(q)); } catch(e) { closeSuggestions(); }
+    try {
+      showSuggestions(await StockAPI.searchTicker(q));
+    } catch(e) {
+      closeSuggestions();
+      if (e.message && e.message.indexOf('Rate limit') !== -1) {
+        showWarning('Search rate limited. Wait a moment.');
+      } else if (e.message && e.message.indexOf('Network') !== -1) {
+        showError('Network error — check your internet connection.');
+      }
+    }
   }
   function showSuggestions(results) {
     suggestionsList.innerHTML = '';
@@ -99,7 +158,10 @@
     symbol = symbol.toUpperCase(); type = type || 'Equity';
     if (trackedStocks.find(function(s) { return s.symbol === symbol; })) { selectStock(symbol); return; }
     trackedStocks.push({ symbol: symbol, name: name || '', type: type });
-    saveTracked(); renderSidebar(); loadStockData(symbol, type);
+    saveTracked(); renderSidebar();
+    loadStockData(symbol, type).catch(function(e) {
+      showError('Failed to load ' + symbol + ': ' + e.message);
+    });
     selectStock(symbol); startAutoRefresh();
   }
   function removeStock(symbol, evt) {
@@ -148,21 +210,31 @@
   function renderDetail(symbol) {
     var c = cache[symbol] || {};
     var s = trackedStocks.find(function(t) { return t.symbol === symbol; }) || {};
-    renderDetailHeader(symbol, c, s);
-    renderDetailVerdict(symbol, c);
-    renderDetailKPIs(symbol, c, s);
-    renderDetailPE(symbol, c, s);
-    renderDetailETFHoldings(symbol, c, s);
-    renderDetailRevenue(symbol, c, s);
-    renderDetailEarnings(symbol, c, s);
-    renderDetailFundamentals(symbol, c, s);
-    renderDetailInsider(symbol, c, s);
-    renderDetailAI(symbol, c);
-    renderDetailAnalyst(symbol, c);
-    renderDetailMacro(symbol, c);
-    renderDetailTranscript(symbol, c);
-    renderDetailPeers(symbol, c);
-    renderDetailNews(symbol, c);
+    var renders = [
+      function() { renderDetailHeader(symbol, c, s); },
+      function() { renderDetailVerdict(symbol, c); },
+      function() { renderDetailAboutCompany(symbol, c, s); },
+      function() { renderDetailKPIs(symbol, c, s); },
+      function() { renderDetailPE(symbol, c, s); },
+      function() { renderDetailTechnicals(symbol, c, s); },
+      function() { renderDetailETFHoldings(symbol, c, s); },
+      function() { renderDetailRevenue(symbol, c, s); },
+      function() { renderDetailEarnings(symbol, c, s); },
+      function() { renderDetailDividends(symbol, c, s); },
+      function() { renderDetailFundamentals(symbol, c, s); },
+      function() { renderDetailInsider(symbol, c, s); },
+      function() { renderDetailSEC(symbol, c, s); },
+      function() { renderDetailAI(symbol, c); },
+      function() { renderDetailAnalyst(symbol, c); },
+      function() { renderDetailMacro(symbol, c); },
+      function() { renderDetailTranscript(symbol, c); },
+      function() { renderDetailPeers(symbol, c); },
+      function() { renderDetailAlerts(symbol, c); },
+      function() { renderDetailNews(symbol, c); },
+    ];
+    renders.forEach(function(fn) {
+      try { fn(); } catch (e) { console.warn('Render error:', e.message); }
+    });
   }
   function renderDetailHeader(symbol, c, s) {
     var el = document.getElementById('detail-header');
@@ -173,6 +245,41 @@
     if (q) { changeStr = (q.change >= 0 ? '+' : '') + q.change.toFixed(2) + ' (' + q.changePct.toFixed(2) + '%)'; changeClass = q.change >= 0 ? 'up' : 'down'; }
     el.innerHTML = '<div class="detail-header-left"><div><div class="detail-ticker">' + symbol + badge + '</div><div class="detail-company">' + name + '</div></div></div>'
       + '<div><div class="detail-price">' + priceStr + '</div><div class="detail-change ' + changeClass + '">' + changeStr + '</div></div>';
+  }
+  // --- About Company ---
+  function renderDetailAboutCompany(symbol, c, s) {
+    var tile = document.getElementById('tile-about-company');
+    var el = document.getElementById('detail-about-company');
+    if (!tile || !el) return;
+    if (s && s.type === 'ETF') { tile.style.display = 'none'; return; }
+    tile.style.display = '';
+    var desc = (c.avOverview && c.avOverview.Description) ? c.avOverview.Description : null;
+    var p = c.profile || {};
+    if (!desc && !p.name) { el.innerHTML = '<div class="tile-loading">Loading company info...</div>'; return; }
+    var h = '';
+    if (desc) {
+      h += '<div class="about-company-desc" id="about-desc-text">' + desc + '</div>';
+      h += '<button class="about-company-toggle" id="about-desc-toggle">Show more</button>';
+    } else {
+      h += '<div style="font-size:0.72rem;color:var(--muted);">Add an Alpha Vantage key for full company description.</div>';
+    }
+    h += '<div class="about-company-meta">';
+    if (p.sector) h += '<span class="about-company-tag">Sector: ' + p.sector + '</span>';
+    if (p.exchange) h += '<span class="about-company-tag">' + p.exchange + '</span>';
+    if (p.ipo) h += '<span class="about-company-tag">IPO: ' + p.ipo + '</span>';
+    if (p.weburl) h += '<a class="about-company-tag" href="' + p.weburl + '" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">' + p.weburl.replace(/^https?:\/\//, '') + '</a>';
+    if (c.avOverview && c.avOverview.FullTimeEmployees) h += '<span class="about-company-tag">Employees: ' + parseInt(c.avOverview.FullTimeEmployees).toLocaleString() + '</span>';
+    if (c.avOverview && c.avOverview.Country) h += '<span class="about-company-tag">' + c.avOverview.Country + '</span>';
+    h += '</div>';
+    el.innerHTML = h;
+    var toggle = document.getElementById('about-desc-toggle');
+    var descEl = document.getElementById('about-desc-text');
+    if (toggle && descEl) {
+      toggle.onclick = function() {
+        descEl.classList.toggle('expanded');
+        toggle.textContent = descEl.classList.contains('expanded') ? 'Show less' : 'Show more';
+      };
+    }
   }
   // --- AI Verdict ---
   function renderDetailVerdict(symbol, c) {
@@ -189,7 +296,12 @@
     // Need at least quote + some other data
     if (!c.quote) { contentEl.innerHTML = '<div class="tile-loading">Waiting for data to load...</div>'; btn.disabled = true; return; }
     btn.disabled = false; btn.textContent = 'Generate Verdict';
-    contentEl.innerHTML = '<div class="tile-loading">Click Generate Verdict after other tiles have loaded for the most comprehensive analysis.</div>';
+    var freshNote = '';
+    if (c._dataLoadedAt) {
+      var ageMin = Math.round((Date.now() - c._dataLoadedAt) / 60000);
+      freshNote = '<div style="font-size:0.6rem;color:var(--muted);margin-top:0.3rem;">Data last refreshed: ' + (ageMin < 1 ? 'just now' : ageMin + ' min ago') + '. Verdict will auto-refresh if data is older than 10 min.</div>';
+    }
+    contentEl.innerHTML = '<div class="tile-loading">Click Generate Verdict. The senior analyst will auto-refresh stale data and run all AI tiles first.</div>' + freshNote;
   }
 
   async function runVerdict(symbol) {
@@ -197,7 +309,54 @@
     var btn = document.getElementById('detail-verdict-btn');
     var c = cache[symbol];
     if (!NewsAI.hasKey() || !c) return;
-    btn.disabled = true; btn.textContent = 'Analyzing\u2026';
+    btn.disabled = true; btn.textContent = 'Preparing\u2026';
+
+    // Check data freshness — refresh if older than 10 minutes
+    var staleMs = 10 * 60 * 1000;
+    var dataAge = c._dataLoadedAt ? (Date.now() - c._dataLoadedAt) : Infinity;
+    if (dataAge > staleMs) {
+      contentEl.innerHTML = '<div class="tile-loading">\uD83D\uDD04 Data is ' + (dataAge === Infinity ? 'not loaded' : Math.round(dataAge / 60000) + ' min old') + '. Refreshing all data first...</div>';
+      var s = trackedStocks.find(function(t) { return t.symbol === symbol; }) || {};
+      try {
+        await loadStockData(symbol, s.type || 'Equity');
+      } catch (e) {
+        showWarning('Data refresh had issues: ' + e.message + '. Proceeding with available data.');
+      }
+      c = cache[symbol];
+      if (!c) return;
+    }
+
+    // Now run all pending AI analyses sequentially before verdict
+    btn.textContent = 'Running AI tiles\u2026';
+    contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 Running AI analyses to feed the senior analyst...</div>';
+    try {
+      // News AI
+      if (c.articles && c.articles.length && !c.aiResult && NewsAI.hasKey()) {
+        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 Analyzing news...</div>';
+        await runAIAnalysis(symbol);
+        await delay(3000);
+        c = cache[symbol];
+      }
+      // Analyst AI
+      if (((c.recommendations && c.recommendations.length) || (c.upgrades && c.upgrades.length)) && !c.analystAIResult && NewsAI.hasKey()) {
+        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 Analyzing analyst ratings...</div>';
+        await runAnalystAnalysis(symbol);
+        await delay(3000);
+        c = cache[symbol];
+      }
+      // Macro AI
+      if (c.macroArticles && c.macroArticles.length && !c.macroAIResult && NewsAI.hasKey()) {
+        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 Analyzing macro impact...</div>';
+        await runMacroAnalysis(symbol);
+        await delay(3000);
+        c = cache[symbol];
+      }
+    } catch (e) {
+      console.warn('Pre-verdict AI error:', e.message);
+      // Continue to verdict even if some AI tiles fail
+    }
+
+    btn.textContent = 'Analyzing\u2026';
     contentEl.innerHTML = '<div class="tile-loading">\uD83C\uDFAF Senior analyst is reviewing all data for ' + symbol + '...</div>';
     try {
       c.verdictResult = await NewsAI.generateVerdict(
@@ -347,6 +506,109 @@
     });
   }
 
+  // --- Technical Indicators ---
+  function renderDetailTechnicals(symbol, c, s) {
+    var tile = document.getElementById('tile-technicals');
+    var contentEl = document.getElementById('detail-technicals-content');
+    var btn = document.getElementById('detail-technicals-btn');
+    if (!tile || !contentEl || !btn) return;
+    if (s && s.type === 'ETF') { tile.style.display = 'none'; return; }
+    tile.style.display = '';
+    btn.onclick = function() { loadTechnicalsData(symbol); };
+
+    if (c.technicalsResult) {
+      renderTechnicalsHTML(contentEl, c);
+      btn.disabled = false; btn.textContent = 'Reload';
+      return;
+    }
+    if (!AlphaAPI.hasKey()) {
+      contentEl.innerHTML = '<div class="tile-loading">Add an Alpha Vantage key to view RSI, MACD, and moving averages.</div>';
+      btn.disabled = true;
+      return;
+    }
+    btn.disabled = false; btn.textContent = 'Load & Analyze';
+    contentEl.innerHTML = '<div class="tile-loading">Click Load & Analyze to fetch RSI, MACD, SMA (3 AV calls).</div>';
+  }
+
+  async function loadTechnicalsData(symbol) {
+    var contentEl = document.getElementById('detail-technicals-content');
+    var btn = document.getElementById('detail-technicals-btn');
+    if (!AlphaAPI.hasKey() || !symbol) return;
+    btn.disabled = true; btn.textContent = 'Loading\u2026';
+    contentEl.innerHTML = '<div class="tile-loading">Fetching RSI...</div>';
+    try {
+      if (!cache[symbol]) cache[symbol] = {};
+      var c = cache[symbol];
+      c.rsiData = await AlphaAPI.getRSI(symbol);
+      contentEl.innerHTML = '<div class="tile-loading">Fetching MACD...</div>';
+      c.macdData = await AlphaAPI.getMACD(symbol);
+      contentEl.innerHTML = '<div class="tile-loading">Fetching SMA 50...</div>';
+      c.sma50Data = await AlphaAPI.getSMA(symbol, 50);
+      contentEl.innerHTML = '<div class="tile-loading">Fetching SMA 200...</div>';
+      c.sma200Data = await AlphaAPI.getSMA(symbol, 200);
+
+      if (NewsAI.hasKey()) {
+        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 AI analyzing technicals...</div>';
+        c.technicalsResult = await NewsAI.analyzeTechnicals(
+          symbol, c.profile ? c.profile.name : symbol,
+          c.rsiData, c.macdData, c.sma50Data, c.sma200Data, c.quote
+        );
+      }
+      if (selectedSymbol === symbol) renderTechnicalsHTML(contentEl, c);
+    } catch (e) {
+      contentEl.innerHTML = '<div class="error-msg">' + e.message + '</div>';
+    }
+    btn.disabled = false; btn.textContent = 'Reload';
+  }
+
+  function renderTechnicalsHTML(el, c) {
+    var ai = c.technicalsResult;
+    var h = '';
+    if (ai) {
+      h += '<div class="technicals-signal-row">';
+      h += '<span class="technicals-signal-badge ' + (ai.signal || '') + '">' + (ai.signal || 'N/A') + '</span>';
+      h += '<span style="font-size:0.72rem;color:var(--muted);">' + (ai.signalReason || '') + '</span>';
+      h += '</div>';
+      h += '<div class="ai-summary">' + (ai.summary || '') + '</div>';
+    }
+    h += '<div class="technicals-gauges">';
+    if (c.rsiData && c.rsiData.length) {
+      var rsiVal = c.rsiData[0].rsi;
+      var rsiColor = rsiVal > 70 ? 'var(--red)' : rsiVal < 30 ? 'var(--green)' : 'var(--muted)';
+      var rsiLabel = rsiVal > 70 ? 'Overbought' : rsiVal < 30 ? 'Oversold' : 'Neutral';
+      h += '<div class="technicals-gauge"><div class="technicals-gauge-label">RSI (14)</div><div class="technicals-gauge-val" style="color:' + rsiColor + ';">' + rsiVal.toFixed(1) + '</div><div class="technicals-gauge-interp">' + rsiLabel + '</div></div>';
+    }
+    if (c.macdData && c.macdData.length) {
+      var m = c.macdData[0];
+      var macdColor = m.histogram >= 0 ? 'var(--green)' : 'var(--red)';
+      h += '<div class="technicals-gauge"><div class="technicals-gauge-label">MACD Hist</div><div class="technicals-gauge-val" style="color:' + macdColor + ';">' + m.histogram.toFixed(3) + '</div><div class="technicals-gauge-interp">' + (m.histogram >= 0 ? 'Bullish' : 'Bearish') + '</div></div>';
+    }
+    if (c.sma50Data && c.sma50Data.length && c.sma200Data && c.sma200Data.length) {
+      var golden = c.sma50Data[0].sma > c.sma200Data[0].sma;
+      h += '<div class="technicals-gauge"><div class="technicals-gauge-label">SMA Cross</div><div class="technicals-gauge-val" style="color:' + (golden ? 'var(--green)' : 'var(--red)') + ';">' + (golden ? 'Golden' : 'Death') + '</div><div class="technicals-gauge-interp">50 vs 200 day</div></div>';
+    }
+    h += '</div>';
+    // Support/Resistance
+    if (ai && (ai.support || ai.resistance)) {
+      h += '<div class="technicals-levels">';
+      if (ai.support) h += '<div class="technicals-level"><div class="technicals-level-label">Support</div><div class="technicals-level-val" style="color:var(--green);">' + ai.support + '</div></div>';
+      if (ai.resistance) h += '<div class="technicals-level"><div class="technicals-level-label">Resistance</div><div class="technicals-level-val" style="color:var(--red);">' + ai.resistance + '</div></div>';
+      h += '</div>';
+    }
+    // SMA values
+    if (c.sma50Data && c.sma50Data.length) {
+      h += '<div style="font-size:0.68rem;color:var(--muted);">SMA 50: ' + c.sma50Data[0].sma.toFixed(2);
+      if (c.sma200Data && c.sma200Data.length) h += ' | SMA 200: ' + c.sma200Data[0].sma.toFixed(2);
+      if (c.quote) h += ' | Price: $' + c.quote.price.toFixed(2) + ' (' + (c.quote.price > (c.sma50Data[0].sma) ? 'above' : 'below') + ' SMA50)';
+      h += '</div>';
+    }
+    if (ai && ai.recommendation) {
+      h += '<div style="font-size:0.72rem;color:var(--accent);margin-top:0.4rem;font-weight:600;">' + ai.recommendation + '</div>';
+    }
+    if (!AlphaAPI.hasKey()) h += '<div style="font-size:0.58rem;color:var(--muted);margin-top:0.3rem;">Add Alpha Vantage key for technical data.</div>';
+    el.innerHTML = h;
+  }
+
   // --- Earnings ---
   var earningsChart = null;
   function renderDetailEarnings(symbol, c, s) {
@@ -485,6 +747,54 @@
         },
       },
     });
+  }
+
+  // --- Dividends ---
+  function renderDetailDividends(symbol, c, s) {
+    var tile = document.getElementById('tile-dividends');
+    var el = document.getElementById('detail-dividends-content');
+    if (!tile || !el) return;
+    if (s && s.type === 'ETF') { tile.style.display = 'none'; return; }
+    tile.style.display = '';
+    var f = c.financials || {};
+    var ov = c.avOverview || {};
+    var hasDivData = f.dividendYield || ov.DividendPerShare || ov.DividendYield || ov.ExDividendDate;
+    if (!hasDivData) { el.innerHTML = '<div class="tile-loading">No dividend data available for this stock.</div>'; return; }
+
+    var h = '<div class="dividends-summary">';
+    var divYield = ov.DividendYield ? (parseFloat(ov.DividendYield) * 100).toFixed(2) + '%' : (f.dividendYield || 'N/A');
+    var divPerShare = ov.DividendPerShare && ov.DividendPerShare !== 'None' ? '$' + parseFloat(ov.DividendPerShare).toFixed(2) : 'N/A';
+    var payoutRatio = ov.PayoutRatio && ov.PayoutRatio !== 'None' ? (parseFloat(ov.PayoutRatio) * 100).toFixed(1) + '%' : 'N/A';
+    var exDate = ov.ExDividendDate && ov.ExDividendDate !== 'None' ? ov.ExDividendDate : 'N/A';
+    var divDate = ov.DividendDate && ov.DividendDate !== 'None' ? ov.DividendDate : null;
+
+    h += '<div class="dividends-summary-box"><div class="dividends-summary-val" style="color:var(--green);">' + divYield + '</div><div class="dividends-summary-label">Yield</div></div>';
+    h += '<div class="dividends-summary-box"><div class="dividends-summary-val">' + divPerShare + '</div><div class="dividends-summary-label">Per Share</div></div>';
+    h += '<div class="dividends-summary-box"><div class="dividends-summary-val">' + payoutRatio + '</div><div class="dividends-summary-label">Payout Ratio</div></div>';
+    h += '<div class="dividends-summary-box"><div class="dividends-summary-val" style="font-size:0.78rem;">' + exDate + '</div><div class="dividends-summary-label">Ex-Dividend</div></div>';
+    if (divDate) {
+      h += '<div class="dividends-summary-box"><div class="dividends-summary-val" style="font-size:0.78rem;">' + divDate + '</div><div class="dividends-summary-label">Pay Date</div></div>';
+    }
+    h += '</div>';
+
+    // Payout health assessment
+    var payoutNum = ov.PayoutRatio && ov.PayoutRatio !== 'None' ? parseFloat(ov.PayoutRatio) * 100 : null;
+    if (payoutNum != null) {
+      var payoutColor = payoutNum < 50 ? 'var(--green)' : payoutNum < 75 ? '#f59e0b' : 'var(--red)';
+      var payoutLabel = payoutNum < 50 ? 'Healthy — room to grow' : payoutNum < 75 ? 'Moderate — sustainable' : 'High — may be at risk';
+      h += '<div style="font-size:0.72rem;margin-top:0.3rem;"><span style="color:' + payoutColor + ';font-weight:600;">Payout: ' + payoutNum.toFixed(0) + '%</span> — ' + payoutLabel + '</div>';
+    }
+
+    // Dividend growth from AV overview
+    var qRevGrowth = ov.QuarterlyRevenueGrowthYOY && ov.QuarterlyRevenueGrowthYOY !== 'None' ? ov.QuarterlyRevenueGrowthYOY : null;
+    if (qRevGrowth) {
+      h += '<div style="font-size:0.65rem;color:var(--muted);margin-top:0.3rem;">Quarterly Revenue Growth YoY: ' + (parseFloat(qRevGrowth) * 100).toFixed(1) + '% (supports dividend sustainability)</div>';
+    }
+
+    if (!ov.DividendPerShare) {
+      h += '<div style="font-size:0.58rem;color:var(--muted);margin-top:0.3rem;">Add an Alpha Vantage key for detailed dividend data (payout ratio, ex-date, pay date).</div>';
+    }
+    el.innerHTML = h;
   }
 
   // --- ETF Holdings ---
@@ -680,6 +990,63 @@
     });
     h += '</tbody></table>';
     if (trades.length > 15) h += '<div style="font-size:0.62rem;color:var(--muted);margin-top:0.3rem;">Showing 15 of ' + trades.length + ' transactions.</div>';
+    el.innerHTML = h;
+  }
+
+  // --- SEC Filings ---
+  function renderDetailSEC(symbol, c, s) {
+    var tile = document.getElementById('tile-sec');
+    var contentEl = document.getElementById('detail-sec-content');
+    var btn = document.getElementById('detail-sec-btn');
+    if (!tile || !contentEl || !btn) return;
+    if (s && s.type === 'ETF') { tile.style.display = 'none'; return; }
+    tile.style.display = '';
+    btn.onclick = function() { loadSECFilings(symbol); };
+
+    if (c.secFilings && c.secFilings.length) {
+      renderSECHTML(contentEl, c.secFilings);
+      btn.disabled = false; btn.textContent = 'Reload';
+      return;
+    }
+    btn.disabled = false; btn.textContent = 'Load Filings';
+    contentEl.innerHTML = '<div class="tile-loading">Click Load Filings to fetch latest 10-K, 10-Q, 8-K from SEC EDGAR.</div>';
+  }
+
+  async function loadSECFilings(symbol) {
+    var contentEl = document.getElementById('detail-sec-content');
+    var btn = document.getElementById('detail-sec-btn');
+    if (!symbol) return;
+    btn.disabled = true; btn.textContent = 'Loading\u2026';
+    contentEl.innerHTML = '<div class="tile-loading">Fetching SEC filings...</div>';
+    try {
+      if (!cache[symbol]) cache[symbol] = {};
+      cache[symbol].secFilings = await StockAPI.getSECFilings(symbol);
+      if (selectedSymbol === symbol) {
+        if (!cache[symbol].secFilings || !cache[symbol].secFilings.length) {
+          contentEl.innerHTML = '<div class="tile-loading">No SEC filings found for ' + symbol + '. Try a US-listed stock.</div>';
+        } else {
+          renderSECHTML(contentEl, cache[symbol].secFilings);
+        }
+      }
+    } catch (e) {
+      contentEl.innerHTML = '<div class="error-msg">' + e.message + '</div>';
+    }
+    btn.disabled = false; btn.textContent = 'Reload';
+  }
+
+  function renderSECHTML(el, filings) {
+    var h = '';
+    filings.forEach(function(f) {
+      var typeClass = 'type-' + f.type.replace(/-/g, '');
+      h += '<a class="sec-filing-item" href="' + f.url + '" target="_blank" rel="noopener">';
+      h += '<span class="sec-filing-type ' + typeClass + '">' + f.type + '</span>';
+      h += '<div style="flex:1;min-width:0;"><div class="sec-filing-title">' + f.title + '</div>';
+      if (f.summary) h += '<div style="font-size:0.62rem;color:var(--muted);margin-top:0.15rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + f.summary + '</div>';
+      h += '</div>';
+      h += '<span class="sec-filing-date">' + f.date + '</span>';
+      h += '</a>';
+    });
+    h += '<div style="font-size:0.58rem;color:var(--muted);margin-top:0.4rem;">Click any filing to view on SEC EDGAR.</div>';
     el.innerHTML = h;
   }
 
@@ -1546,7 +1913,167 @@
 
     h += '</tbody></table>';
     h += '<div style="font-size:0.58rem;color:var(--muted);margin-top:0.4rem;">\u2B50 = current stock. <span class="peer-best">Green</span> = best in group. <span class="peer-worst">Red</span> = worst in group.</div>';
+
+    // Sector/Industry Comparison — compute peer group medians
+    var peerOnly = rows.filter(function(r) { return !r.isCurrent; });
+    if (peerOnly.length >= 2) {
+      var me = rows[0];
+      function median(arr) {
+        var sorted = arr.slice().sort(function(a, b) { return a - b; });
+        var mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+      }
+      var metrics = [
+        { label: 'P/E Ratio', key: 'pe', suffix: 'x', lower: true },
+        { label: 'Fwd P/E', key: 'fwdPE', suffix: 'x', lower: true },
+        { label: 'Rev Growth', key: 'revGrowth', suffix: '%', lower: false },
+        { label: 'Profit Margin', key: 'profitMargin', suffix: '%', lower: false },
+        { label: 'Div Yield', key: 'divYield', suffix: '%', lower: false },
+        { label: 'Beta', key: 'beta', suffix: '', lower: true },
+      ];
+      h += '<div style="margin-top:0.75rem;"><div style="font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin-bottom:0.4rem;">Sector Comparison (vs Peer Median)</div>';
+      h += '<div style="display:flex;flex-wrap:wrap;gap:0.4rem;">';
+      metrics.forEach(function(m) {
+        var vals = peerOnly.map(function(r) { return r[m.key]; }).filter(function(v) { return v != null && !isNaN(v); });
+        if (!vals.length || me[m.key] == null) return;
+        var med = median(vals);
+        var myVal = me[m.key];
+        var diff = myVal - med;
+        var better = m.lower ? diff < 0 : diff > 0;
+        var color = better ? 'var(--green)' : 'var(--red)';
+        var arrow = better ? '\u25B2' : '\u25BC';
+        h += '<div style="flex:1;min-width:120px;background:var(--bg);border-radius:6px;padding:0.4rem 0.5rem;text-align:center;">';
+        h += '<div style="font-size:0.55rem;color:var(--muted);text-transform:uppercase;">' + m.label + '</div>';
+        h += '<div style="font-size:0.85rem;font-weight:700;">' + myVal.toFixed(1) + m.suffix + '</div>';
+        h += '<div style="font-size:0.6rem;color:' + color + ';">' + arrow + ' vs median ' + med.toFixed(1) + m.suffix + '</div>';
+        h += '</div>';
+      });
+      h += '</div></div>';
+    }
+
     el.innerHTML = h;
+  }
+
+  // --- Price Alerts ---
+  var priceAlerts = [];
+  function loadPriceAlerts() { priceAlerts = userGet('price_alerts', []); }
+  function saveAlerts() { userSet('price_alerts', priceAlerts); }
+
+  function renderDetailAlerts(symbol, c) {
+    var tile = document.getElementById('tile-alerts');
+    var contentEl = document.getElementById('detail-alerts-content');
+    var addBtn = document.getElementById('detail-alerts-add-btn');
+    if (!tile || !contentEl || !addBtn) return;
+
+    var myAlerts = priceAlerts.filter(function(a) { return a.symbol === symbol; });
+    var h = '';
+
+    if (myAlerts.length) {
+      h += '<div class="alerts-list">';
+      myAlerts.forEach(function(a, idx) {
+        var currentPrice = c.quote ? c.quote.price : null;
+        var triggered = false;
+        if (currentPrice != null) {
+          if (a.type === 'above' && currentPrice >= a.price) triggered = true;
+          if (a.type === 'below' && currentPrice <= a.price) triggered = true;
+        }
+        h += '<div class="alert-item">';
+        h += '<span class="alert-item-type ' + a.type + '">' + a.type + '</span>';
+        h += '<span class="alert-item-price">$' + a.price.toFixed(2) + '</span>';
+        if (currentPrice != null) h += '<span class="alert-item-current">Current: $' + currentPrice.toFixed(2) + '</span>';
+        if (triggered) h += '<span class="alert-triggered">TRIGGERED</span>';
+        h += '<button class="alert-item-remove" data-alert-idx="' + idx + '">&times;</button>';
+        h += '</div>';
+      });
+      h += '</div>';
+    } else {
+      h += '<div style="font-size:0.72rem;color:var(--muted);margin-bottom:0.4rem;">No alerts set for ' + symbol + '.</div>';
+    }
+
+    // Add alert form
+    h += '<div class="alert-form" id="alert-form-' + symbol + '">';
+    h += '<select id="alert-type-select"><option value="above">Above</option><option value="below">Below</option></select>';
+    h += '<input type="number" id="alert-price-input" placeholder="Price..." step="0.01" />';
+    h += '<button id="alert-save-btn">Set Alert</button>';
+    h += '</div>';
+
+    contentEl.innerHTML = h;
+
+    // Wire up save button
+    var saveBtn = document.getElementById('alert-save-btn');
+    var typeSelect = document.getElementById('alert-type-select');
+    var priceInput = document.getElementById('alert-price-input');
+    if (saveBtn) {
+      saveBtn.onclick = function() {
+        var price = parseFloat(priceInput.value);
+        if (isNaN(price) || price <= 0) return;
+        priceAlerts.push({ symbol: symbol, type: typeSelect.value, price: price, createdAt: Date.now() });
+        saveAlerts();
+        renderDetailAlerts(symbol, cache[symbol] || {});
+      };
+    }
+
+    // Wire up remove buttons
+    contentEl.querySelectorAll('.alert-item-remove').forEach(function(btn) {
+      btn.onclick = function() {
+        var globalIdx = findAlertGlobalIndex(symbol, parseInt(btn.dataset.alertIdx));
+        if (globalIdx >= 0) {
+          priceAlerts.splice(globalIdx, 1);
+          saveAlerts();
+          renderDetailAlerts(symbol, cache[symbol] || {});
+        }
+      };
+    });
+
+    // Set add button to focus the price input
+    addBtn.onclick = function() {
+      if (priceInput) priceInput.focus();
+    };
+  }
+
+  function findAlertGlobalIndex(symbol, localIdx) {
+    var count = 0;
+    for (var i = 0; i < priceAlerts.length; i++) {
+      if (priceAlerts[i].symbol === symbol) {
+        if (count === localIdx) return i;
+        count++;
+      }
+    }
+    return -1;
+  }
+
+  function checkPriceAlerts() {
+    if (!priceAlerts.length) return;
+    var notified = false;
+    priceAlerts.forEach(function(a) {
+      var c = cache[a.symbol];
+      if (!c || !c.quote) return;
+      var price = c.quote.price;
+      var triggered = false;
+      if (a.type === 'above' && price >= a.price && !a.notified) triggered = true;
+      if (a.type === 'below' && price <= a.price && !a.notified) triggered = true;
+      if (triggered) {
+        a.notified = true;
+        notified = true;
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification('Price Alert: ' + a.symbol, {
+            body: a.symbol + ' is now $' + price.toFixed(2) + ' (' + a.type + ' $' + a.price.toFixed(2) + ')',
+            icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><text y="32" font-size="32">📈</text></svg>'
+          });
+        }
+      }
+    });
+    if (notified) {
+      saveAlerts();
+      if (selectedSymbol) renderDetailAlerts(selectedSymbol, cache[selectedSymbol] || {});
+    }
+  }
+
+  // Request notification permission on first alert
+  function requestNotificationPermission() {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
   }
 
   // --- News ---
@@ -1589,37 +2116,38 @@
         runAIAnalysis(symbol);
       }
     } catch (e) {
-      el.innerHTML = '<div class="error-msg">Failed to refresh: ' + e.message + '</div>';
+      el.innerHTML = '<div class="error-msg">Failed to refresh news: ' + e.message + '</div>';
+      showError(symbol + ' news refresh failed: ' + e.message);
     }
     btn.disabled = false; btn.textContent = 'Refresh';
   }
 
   // --- Data loading ---
   async function loadQuote(symbol) {
-    try {
-      var q = await StockAPI.getQuote(symbol);
-      if (!cache[symbol]) cache[symbol] = {};
-      cache[symbol].quote = q;
-    } catch (e) { console.warn('Quote error for ' + symbol + ':', e.message); }
+    if (!cache[symbol]) cache[symbol] = {};
+    var q = await StockAPI.getQuote(symbol);
+    cache[symbol].quote = q;
   }
 
   async function loadProfileAndFinancials(symbol, type) {
     if (!cache[symbol]) cache[symbol] = {};
-    try {
-      if (type !== 'ETF') {
-        var results = await Promise.all([
-          StockAPI.getProfile(symbol),
-          StockAPI.getBasicFinancials(symbol)
-        ]);
-        if (results[0]) cache[symbol].profile = results[0];
-        if (results[1]) cache[symbol].financials = results[1];
-      } else {
+    if (type !== 'ETF') {
+      var results = await Promise.all([
+        StockAPI.getProfile(symbol).catch(function(e) { console.warn('Profile error:', e.message); return null; }),
+        StockAPI.getBasicFinancials(symbol).catch(function(e) { console.warn('Financials error:', e.message); return null; })
+      ]);
+      if (results[0]) cache[symbol].profile = results[0];
+      if (results[1]) cache[symbol].financials = results[1];
+    } else {
+      try {
         var profile = await StockAPI.getProfile(symbol);
         if (profile) cache[symbol].profile = profile;
+      } catch (e) { console.warn('ETF profile error:', e.message); }
+      try {
         var fin = await StockAPI.getBasicFinancials(symbol);
         if (fin) cache[symbol].financials = fin;
-      }
-    } catch (e) { console.warn('Profile/financials error for ' + symbol + ':', e.message); }
+      } catch (e) { console.warn('ETF financials error:', e.message); }
+    }
   }
 
   async function loadNews(symbol) {
@@ -1627,25 +2155,22 @@
     try {
       cache[symbol].articles = await StockAPI.getNews(symbol);
     } catch (e) {
-      console.warn('News error for ' + symbol + ':', e.message);
-      cache[symbol].articles = [];
+      cache[symbol].articles = cache[symbol].articles || [];
+      throw e;
     }
   }
 
   async function loadAnalystData(symbol) {
     if (!cache[symbol]) cache[symbol] = {};
-    // Load independently — getUpgradeDowngrade is premium-only and will fail on free tier
     try {
       cache[symbol].recommendations = await StockAPI.getRecommendations(symbol) || [];
     } catch (e) {
-      console.warn('Recommendations error for ' + symbol + ':', e.message);
-      cache[symbol].recommendations = [];
+      cache[symbol].recommendations = cache[symbol].recommendations || [];
     }
     try {
       cache[symbol].upgrades = await StockAPI.getUpgradeDowngrade(symbol) || [];
     } catch (e) {
-      console.warn('Upgrades error (premium endpoint) for ' + symbol + ':', e.message);
-      cache[symbol].upgrades = [];
+      cache[symbol].upgrades = cache[symbol].upgrades || [];
     }
   }
 
@@ -1654,8 +2179,8 @@
     try {
       cache[symbol].macroArticles = await StockAPI.getMarketNews();
     } catch (e) {
-      console.warn('Macro news error:', e.message);
-      cache[symbol].macroArticles = [];
+      cache[symbol].macroArticles = cache[symbol].macroArticles || [];
+      throw e;
     }
   }
 
@@ -1664,14 +2189,12 @@
     try {
       cache[symbol].earnings = await StockAPI.getEarnings(symbol);
     } catch (e) {
-      console.warn('Earnings error for ' + symbol + ':', e.message);
-      cache[symbol].earnings = [];
+      cache[symbol].earnings = cache[symbol].earnings || [];
     }
     try {
       cache[symbol].earningsCalendar = await StockAPI.getEarningsCalendar(symbol);
     } catch (e) {
-      console.warn('Earnings calendar error for ' + symbol + ':', e.message);
-      cache[symbol].earningsCalendar = null;
+      cache[symbol].earningsCalendar = cache[symbol].earningsCalendar || null;
     }
   }
 
@@ -1680,8 +2203,8 @@
     try {
       cache[symbol].insiderTrades = await StockAPI.getInsiderTransactions(symbol);
     } catch (e) {
-      console.warn('Insider trades error for ' + symbol + ':', e.message);
-      cache[symbol].insiderTrades = [];
+      cache[symbol].insiderTrades = cache[symbol].insiderTrades || [];
+      throw e;
     }
   }
 
@@ -1690,8 +2213,8 @@
     try {
       cache[symbol].etfHoldings = await StockAPI.getETFHoldings(symbol);
     } catch (e) {
-      console.warn('ETF holdings error for ' + symbol + ':', e.message);
-      cache[symbol].etfHoldings = null;
+      cache[symbol].etfHoldings = cache[symbol].etfHoldings || null;
+      throw e;
     }
   }
 
@@ -1704,22 +2227,39 @@
     var oldEarningsPeriod = (c.earnings && c.earnings.length) ? c.earnings[0].period : null;
     var oldArticleCount = c.articles ? c.articles.length : 0;
     var oldFirstArticle = (c.articles && c.articles.length) ? c.articles[0].title : null;
+    var errors = [];
 
-    await loadQuote(symbol);
+    try {
+      await loadQuote(symbol);
+    } catch (e) {
+      errors.push('Quote: ' + e.message);
+    }
     renderSidebar();
     if (selectedSymbol === symbol) renderDetail(symbol);
 
-    await loadProfileAndFinancials(symbol, type);
+    try {
+      await loadProfileAndFinancials(symbol, type);
+    } catch (e) {
+      errors.push('Profile: ' + e.message);
+    }
     if (selectedSymbol === symbol) renderDetail(symbol);
 
-    var dataLoaders = [loadNews(symbol), loadAnalystData(symbol), loadMacroNews(symbol), loadEarningsData(symbol)];
+    var dataLoaders = [];
+    dataLoaders.push(loadNews(symbol).catch(function(e) { errors.push('News: ' + e.message); }));
+    dataLoaders.push(loadAnalystData(symbol).catch(function(e) { errors.push('Analyst: ' + e.message); }));
+    dataLoaders.push(loadMacroNews(symbol).catch(function(e) { errors.push('Macro: ' + e.message); }));
+    dataLoaders.push(loadEarningsData(symbol).catch(function(e) { errors.push('Earnings: ' + e.message); }));
     if (type === 'ETF') {
-      dataLoaders.push(loadETFHoldings(symbol));
+      dataLoaders.push(loadETFHoldings(symbol).catch(function(e) { errors.push('ETF: ' + e.message); }));
     } else {
-      dataLoaders.push(loadInsiderData(symbol));
+      dataLoaders.push(loadInsiderData(symbol).catch(function(e) { errors.push('Insider: ' + e.message); }));
     }
     await Promise.all(dataLoaders);
     if (selectedSymbol === symbol) renderDetail(symbol);
+
+    // Stamp data freshness timestamp
+    if (!cache[symbol]) cache[symbol] = {};
+    cache[symbol]._dataLoadedAt = Date.now();
 
     // Determine what changed to decide which AI results to invalidate
     var nc = cache[symbol] || {};
@@ -1747,36 +2287,74 @@
     if (NewsAI.hasKey() && cache[symbol]) {
       autoRunAI(symbol);
     }
+
+    // Check price alerts after data refresh
+    checkPriceAlerts();
+
+    // Report any errors that occurred during loading
+    if (errors.length) {
+      var rateErrors = errors.filter(function(e) { return e.indexOf('rate limit') !== -1 || e.indexOf('Rate limit') !== -1 || e.indexOf('429') !== -1; });
+      var networkErrors = errors.filter(function(e) { return e.indexOf('Network') !== -1 || e.indexOf('timed out') !== -1; });
+      if (rateErrors.length) {
+        showWarning(symbol + ': Rate limited on ' + rateErrors.length + ' request(s). Data will refresh next cycle.');
+      } else if (networkErrors.length) {
+        showError(symbol + ': Network issues — ' + networkErrors.length + ' request(s) failed. Check your connection.');
+      } else if (errors.length >= 3) {
+        showError(symbol + ': Multiple data sources failed (' + errors.length + '). Some tiles may be incomplete.');
+      }
+    }
   }
 
   async function autoRunAI(symbol) {
     var c = cache[symbol];
     if (!c) return;
-    try {
-      if (c.articles && c.articles.length && !c.aiResult) {
+    // News AI
+    if (c.articles && c.articles.length && !c.aiResult) {
+      try {
         await runAIAnalysis(symbol);
-        await delay(1500);
-      }
-      if (((c.recommendations && c.recommendations.length) || (c.upgrades && c.upgrades.length)) && !c.analystAIResult) {
+      } catch (e) { console.warn('Auto AI news error:', e.message); }
+      await delay(3000);
+    }
+    // Analyst AI
+    c = cache[symbol];
+    if (c && ((c.recommendations && c.recommendations.length) || (c.upgrades && c.upgrades.length)) && !c.analystAIResult) {
+      try {
         await runAnalystAnalysis(symbol);
-        await delay(1500);
-      }
-      if (c.macroArticles && c.macroArticles.length && !c.macroAIResult) {
+      } catch (e) { console.warn('Auto AI analyst error:', e.message); }
+      await delay(3000);
+    }
+    // Macro AI
+    c = cache[symbol];
+    if (c && c.macroArticles && c.macroArticles.length && !c.macroAIResult) {
+      try {
         await runMacroAnalysis(symbol);
-      }
-    } catch (e) {
-      console.warn('Auto AI error:', e.message);
+      } catch (e) { console.warn('Auto AI macro error:', e.message); }
     }
   }
 
   function delay(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
 
   // --- Auto-refresh ---
-  function refreshAll() {
-    if (!StockAPI.hasKey() || !trackedStocks.length) return;
-    trackedStocks.forEach(function(s) {
-      loadStockData(s.symbol, s.type);
-    });
+  var refreshInProgress = false;
+  async function refreshAll() {
+    if (!StockAPI.hasKey() || !trackedStocks.length || refreshInProgress) return;
+    refreshInProgress = true;
+    var failedStocks = [];
+    for (var i = 0; i < trackedStocks.length; i++) {
+      var s = trackedStocks[i];
+      try {
+        await loadStockData(s.symbol, s.type);
+      } catch (e) {
+        console.warn('Refresh error for ' + s.symbol + ':', e.message);
+        failedStocks.push(s.symbol);
+      }
+      // Stagger between stocks to avoid Finnhub 60 calls/min limit
+      if (i < trackedStocks.length - 1) await delay(2000);
+    }
+    refreshInProgress = false;
+    if (failedStocks.length) {
+      showWarning('Refresh failed for: ' + failedStocks.join(', ') + '. Will retry next cycle.');
+    }
   }
 
   function startAutoRefresh() {
@@ -1797,8 +2375,86 @@
     return '$' + num.toLocaleString();
   }
 
-  // --- Init ---
-  function init() {
+  // --- Login screen ---
+  function showLoginScreen() {
+    var loginOverlay = document.getElementById('login-overlay');
+    var appEl = document.getElementById('app');
+    if (loginOverlay) loginOverlay.classList.remove('hidden');
+    if (appEl) appEl.classList.add('hidden');
+
+    // Render Google button if GSI is loaded
+    var clientId = Auth.getClientId();
+    var configSection = document.getElementById('login-config-section');
+    if (!clientId) {
+      // Show client ID input
+      if (configSection) configSection.classList.remove('hidden');
+      var saveClientBtn = document.getElementById('login-save-client-id');
+      if (saveClientBtn) {
+        saveClientBtn.onclick = function() {
+          var inp = document.getElementById('login-client-id-input');
+          if (inp && inp.value.trim()) {
+            Auth.setClientId(inp.value.trim());
+            location.reload();
+          }
+        };
+      }
+    } else {
+      if (configSection) configSection.classList.add('hidden');
+      // GSI script is async — wait for it to load before rendering button
+      function tryInitGSI(attempts) {
+        if (window.google && google.accounts && google.accounts.id) {
+          Auth.initGSI();
+          Auth.renderButton('google-signin-btn');
+          Auth.prompt();
+        } else if (attempts > 0) {
+          setTimeout(function() { tryInitGSI(attempts - 1); }, 300);
+        } else {
+          var btnEl = document.getElementById('google-signin-btn');
+          if (btnEl) btnEl.innerHTML = '<div style="font-size:0.75rem;color:#fca5a5;">Google Sign-In failed to load. Check your internet and refresh.</div>';
+        }
+      }
+      tryInitGSI(30); // Try for ~9 seconds
+    }
+  }
+
+  function hideLoginScreen() {
+    var loginOverlay = document.getElementById('login-overlay');
+    var appEl = document.getElementById('app');
+    if (loginOverlay) loginOverlay.classList.add('hidden');
+    if (appEl) appEl.classList.remove('hidden');
+  }
+
+  function updateUserUI() {
+    var user = Auth.getUser();
+    var userArea = document.getElementById('sidebar-user');
+    if (!userArea || !user) return;
+    var pic = user.picture ? '<img src="' + user.picture + '" style="width:24px;height:24px;border-radius:50%;object-fit:cover;" referrerpolicy="no-referrer" alt="" />' : '<span style="font-size:1rem;">👤</span>';
+    var nameStr = user.name || user.email || 'User';
+    if (nameStr.length > 18) nameStr = nameStr.slice(0, 16) + '…';
+    userArea.innerHTML = '<div class="user-info">' + pic + '<span class="user-name">' + nameStr + '</span></div><button class="user-logout-btn" id="logout-btn" title="Sign out">↪</button>';
+    var logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+      logoutBtn.onclick = function() {
+        stopAutoRefresh();
+        cache = {};
+        trackedStocks = [];
+        priceAlerts = [];
+        selectedSymbol = null;
+        stockListEl.innerHTML = '';
+        showEmpty();
+        Auth.logout();
+        showLoginScreen();
+      };
+    }
+  }
+
+  /** Called after successful login — loads user data and starts the app */
+  function startApp() {
+    hideLoginScreen();
+    loadTrackedStocks();
+    loadPriceAlerts();
+    updateUserUI();
+
     if (!StockAPI.hasKey()) {
       banner.classList.remove('hidden');
     } else {
@@ -1811,13 +2467,50 @@
     if (AlphaAPI.hasKey()) {
       avKeyInput.value = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
     }
+    requestNotificationPermission();
     renderSidebar();
     if (trackedStocks.length) {
-      trackedStocks.forEach(function(s) { loadStockData(s.symbol, s.type); });
+      trackedStocks.forEach(function(s) {
+        loadStockData(s.symbol, s.type).catch(function(e) {
+          console.warn('Init load error for ' + s.symbol + ':', e.message);
+        });
+      });
       selectStock(trackedStocks[0].symbol);
       startAutoRefresh();
     } else {
       showEmpty();
+    }
+  }
+
+  // --- Init ---
+  function init() {
+    // Global unhandled error safety net
+    window.addEventListener('unhandledrejection', function(e) {
+      var msg = (e.reason && e.reason.message) ? e.reason.message : 'Unknown error';
+      console.error('Unhandled rejection:', msg);
+      if (msg.indexOf('rate limit') !== -1 || msg.indexOf('Rate limit') !== -1 || msg.indexOf('429') !== -1) {
+        showWarning('Rate limited — some requests failed. Will retry automatically.');
+      } else if (msg.indexOf('Network') !== -1 || msg.indexOf('timed out') !== -1 || msg.indexOf('Failed to fetch') !== -1) {
+        showError('Network error — check your internet connection.');
+      }
+      e.preventDefault();
+    });
+
+    // Add toast animation CSS
+    var style = document.createElement('style');
+    style.textContent = '@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}';
+    document.head.appendChild(style);
+
+    // Wire up auth callbacks
+    Auth.onLogin(function(user) {
+      startApp();
+    });
+
+    // Try to restore session
+    if (Auth.restoreSession()) {
+      startApp();
+    } else {
+      showLoginScreen();
     }
   }
 

@@ -7,38 +7,64 @@ const NewsAI = (() => {
   const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
   const MODEL = 'llama-3.1-8b-instant';
 
-  function getKey() { return localStorage.getItem('groq_api_key') || ''; }
-  function setKey(key) { localStorage.setItem('groq_api_key', key.trim()); }
+  function getKey() { return (typeof Auth !== 'undefined' && Auth.isLoggedIn()) ? (Auth.getItem('groq_api_key') || '') : (localStorage.getItem('groq_api_key') || ''); }
+  function setKey(key) { if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('groq_api_key', key.trim()); else localStorage.setItem('groq_api_key', key.trim()); }
   function hasKey() { return getKey().length > 0; }
 
   /** Groq fetch with auto-retry on 429 rate limit */
   async function groqFetch(messages, maxTokens, temperature) {
-    var retries = 3;
-    var waitMs = 3000;
+    var retries = 5;
+    var waitMs = 5000;
     for (var attempt = 0; attempt < retries; attempt++) {
-      var res = await fetch(GROQ_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + getKey(),
-        },
-        body: JSON.stringify({
-          model: MODEL,
-          messages: messages,
-          temperature: temperature || 0.3,
-          max_tokens: maxTokens || 800,
-        }),
-      });
+      var res;
+      try {
+        var controller = new AbortController();
+        var timeoutId = setTimeout(function() { controller.abort(); }, 30000);
+        res = await fetch(GROQ_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + getKey(),
+          },
+          body: JSON.stringify({
+            model: MODEL,
+            messages: messages,
+            temperature: temperature || 0.3,
+            max_tokens: maxTokens || 800,
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+      } catch (e) {
+        if (e.name === 'AbortError') {
+          if (attempt < retries - 1) { await new Promise(function(r) { setTimeout(r, 3000); }); continue; }
+          throw new Error('AI request timed out. Try again.');
+        }
+        if (attempt < retries - 1) { await new Promise(function(r) { setTimeout(r, 2000); }); continue; }
+        throw new Error('Network error reaching Groq AI: ' + (e.message || 'Check your connection.'));
+      }
       if (res.status === 429 && attempt < retries - 1) {
-        await new Promise(function(r) { setTimeout(r, waitMs); });
-        waitMs *= 2;
+        var retryAfter = res.headers.get('retry-after');
+        var retryMs = retryAfter ? (parseFloat(retryAfter) * 1000 + 500) : waitMs;
+        await new Promise(function(r) { setTimeout(r, retryMs); });
+        waitMs = Math.min(waitMs * 2, 30000);
         continue;
       }
-      if (res.status === 429) throw new Error('AI rate limited. Wait a moment and try again.');
-      if (res.status === 401) throw new Error('Invalid Groq API key.');
+      if (res.status === 429) throw new Error('AI rate limited. Wait 30 seconds and try again.');
+      if (res.status === 401) throw new Error('Invalid Groq API key. Check Settings.');
       if (!res.ok) throw new Error('AI error: HTTP ' + res.status);
-      var data = await res.json();
+      var data;
+      try {
+        data = await res.json();
+      } catch (e) {
+        if (attempt < retries - 1) { await new Promise(function(r) { setTimeout(r, 2000); }); continue; }
+        throw new Error('AI returned invalid response. Try again.');
+      }
       var content = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+      if (!content.trim()) {
+        if (attempt < retries - 1) { await new Promise(function(r) { setTimeout(r, 2000); }); continue; }
+        throw new Error('AI returned empty response. Try again.');
+      }
       var cleaned = content.trim();
       if (cleaned.indexOf('```') === 0) {
         cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
@@ -46,7 +72,11 @@ const NewsAI = (() => {
       try {
         return JSON.parse(cleaned);
       } catch (e) {
-        throw new Error('AI returned invalid format. Try again.');
+        if (attempt < retries - 1) {
+          await new Promise(function(r) { setTimeout(r, 2000); });
+          continue;
+        }
+        throw new Error('AI returned invalid JSON format. Try again.');
       }
     }
   }
@@ -270,6 +300,16 @@ Keep valuationImpact to 2-4 items max. Keep keyTriggers to 1-3 items max. Be spe
       sections += '\n';
     }
 
+    // Upcoming earnings
+    if (allData.earningsCalendar) {
+      var ec = allData.earningsCalendar;
+      var daysUntil = Math.ceil((new Date(ec.date) - new Date()) / 86400000);
+      sections += 'UPCOMING EARNINGS: ' + ec.date + ' (' + daysUntil + ' days away)';
+      if (ec.epsEstimate != null) sections += ', EPS Estimate: $' + ec.epsEstimate.toFixed(2);
+      if (ec.quarter) sections += ', Q' + ec.quarter + ' ' + ec.year;
+      sections += '\n\n';
+    }
+
     // Analyst consensus
     if (allData.recommendations && allData.recommendations.length) {
       var r = allData.recommendations[0];
@@ -397,6 +437,48 @@ Keep valuationImpact to 2-4 items max. Keep keyTriggers to 1-3 items max. Be spe
       sections += '\n';
     }
 
+    // Technical indicators
+    if (allData.technicalsResult) {
+      var tech = allData.technicalsResult;
+      sections += 'TECHNICAL ANALYSIS: Signal=' + (tech.signal || 'N/A') + '. ' + (tech.summary || '') + '\n';
+      if (tech.support) sections += '  Support: ' + tech.support + '\n';
+      if (tech.resistance) sections += '  Resistance: ' + tech.resistance + '\n';
+      if (tech.recommendation) sections += '  Recommendation: ' + tech.recommendation + '\n';
+      sections += '\n';
+    }
+    if (allData.rsiData && allData.rsiData.length) {
+      sections += 'RSI (14): ' + allData.rsiData[0].rsi.toFixed(1) + (allData.rsiData[0].rsi > 70 ? ' (OVERBOUGHT)' : allData.rsiData[0].rsi < 30 ? ' (OVERSOLD)' : ' (NEUTRAL)') + '\n';
+    }
+    if (allData.macdData && allData.macdData.length) {
+      sections += 'MACD Histogram: ' + allData.macdData[0].histogram.toFixed(3) + (allData.macdData[0].histogram >= 0 ? ' (BULLISH)' : ' (BEARISH)') + '\n';
+    }
+    if (allData.sma50Data && allData.sma50Data.length && allData.sma200Data && allData.sma200Data.length) {
+      var goldenCross = allData.sma50Data[0].sma > allData.sma200Data[0].sma;
+      sections += 'SMA Cross: ' + (goldenCross ? 'GOLDEN CROSS (bullish)' : 'DEATH CROSS (bearish)') + ', SMA50=' + allData.sma50Data[0].sma.toFixed(2) + ', SMA200=' + allData.sma200Data[0].sma.toFixed(2) + '\n';
+    }
+    if (allData.rsiData || allData.macdData || allData.sma50Data) sections += '\n';
+
+    // Dividend data
+    var divYield = (allData.financials && allData.financials.dividendYield) ? allData.financials.dividendYield : null;
+    var avDiv = allData.avOverview || {};
+    if (divYield || (avDiv.DividendPerShare && avDiv.DividendPerShare !== 'None')) {
+      sections += 'DIVIDENDS: ';
+      if (divYield) sections += 'Yield=' + divYield;
+      if (avDiv.DividendPerShare && avDiv.DividendPerShare !== 'None') sections += ', Per Share=$' + avDiv.DividendPerShare;
+      if (avDiv.PayoutRatio && avDiv.PayoutRatio !== 'None') sections += ', Payout Ratio=' + (parseFloat(avDiv.PayoutRatio) * 100).toFixed(1) + '%';
+      if (avDiv.ExDividendDate && avDiv.ExDividendDate !== 'None') sections += ', Ex-Date=' + avDiv.ExDividendDate;
+      sections += '\n\n';
+    }
+
+    // SEC Filings
+    if (allData.secFilings && allData.secFilings.length) {
+      sections += 'RECENT SEC FILINGS (' + allData.secFilings.length + '):\n';
+      allData.secFilings.slice(0, 5).forEach(function(f) {
+        sections += '  ' + f.date + ' — ' + f.type + ': ' + f.title + '\n';
+      });
+      sections += '\n';
+    }
+
     // Recent news headlines
     if (allData.articles && allData.articles.length) {
       sections += 'RECENT NEWS (' + allData.articles.length + ' articles):\n';
@@ -498,5 +580,51 @@ Keep valuationImpact to 2-4 items max. Keep keyTriggers to 1-3 items max. Be spe
     return groqFetch([{ role: 'user', content: prompt }], 900, 0.3);
   }
 
-  return { getKey, setKey, hasKey, analyzeNews, analyzeAnalysts, analyzeMacro, summarizeTranscript, generateVerdict, analyzeFundamentals };
+  /**
+   * Analyze technical indicators — RSI, MACD, SMA.
+   * Returns: { summary, signal, signalReason, indicators: [{name, value, interpretation}] }
+   */
+  async function analyzeTechnicals(symbol, companyName, rsi, macd, sma50, sma200, quote) {
+    if (!hasKey()) throw new Error('Groq API key required.');
+
+    var sections = '';
+    if (quote) {
+      sections += 'Current Price: $' + quote.price.toFixed(2) + ' (Change: ' + (quote.change >= 0 ? '+' : '') + quote.change.toFixed(2) + ', ' + quote.changePct.toFixed(2) + '%)\n\n';
+    }
+    if (rsi && rsi.length) {
+      sections += 'RSI (14-day): Current=' + rsi[0].rsi.toFixed(1) + ', 5-day avg=' + (rsi.slice(0, 5).reduce(function(a, b) { return a + b.rsi; }, 0) / Math.min(5, rsi.length)).toFixed(1) + '\n';
+      sections += 'RSI trend (last 5): ' + rsi.slice(0, 5).map(function(r) { return r.date + '=' + r.rsi.toFixed(1); }).join(', ') + '\n\n';
+    }
+    if (macd && macd.length) {
+      sections += 'MACD: Line=' + macd[0].macd.toFixed(3) + ', Signal=' + macd[0].signal.toFixed(3) + ', Histogram=' + macd[0].histogram.toFixed(3) + '\n';
+      var crossover = 'none';
+      if (macd.length >= 2) {
+        if (macd[1].histogram < 0 && macd[0].histogram >= 0) crossover = 'BULLISH crossover (histogram turned positive)';
+        else if (macd[1].histogram > 0 && macd[0].histogram <= 0) crossover = 'BEARISH crossover (histogram turned negative)';
+      }
+      sections += 'MACD Crossover: ' + crossover + '\n\n';
+    }
+    if (sma50 && sma50.length) {
+      sections += 'SMA 50-day: ' + sma50[0].sma.toFixed(2) + '\n';
+    }
+    if (sma200 && sma200.length) {
+      sections += 'SMA 200-day: ' + sma200[0].sma.toFixed(2) + '\n';
+      if (sma50 && sma50.length) {
+        var goldenCross = sma50[0].sma > sma200[0].sma;
+        sections += 'Golden/Death Cross: ' + (goldenCross ? 'SMA50 ABOVE SMA200 (bullish)' : 'SMA50 BELOW SMA200 (bearish)') + '\n';
+      }
+    }
+    if (quote && sma50 && sma50.length) {
+      sections += 'Price vs SMA50: ' + (quote.price > sma50[0].sma ? 'ABOVE' : 'BELOW') + '\n';
+    }
+    if (quote && sma200 && sma200.length) {
+      sections += 'Price vs SMA200: ' + (quote.price > sma200[0].sma ? 'ABOVE' : 'BELOW') + '\n';
+    }
+
+    var prompt = 'You are a senior technical analyst. Analyze the following technical indicators for ' + symbol + ' (' + (companyName || symbol) + ') and provide a trading signal interpretation.\n\n' + sections + '\nRespond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "2-3 sentence technical analysis summary",\n  "signal": "BULLISH" or "BEARISH" or "NEUTRAL",\n  "signalReason": "1 sentence explaining the overall technical signal",\n  "indicators": [\n    {\n      "name": "indicator name (RSI, MACD, SMA)",\n      "value": "current value",\n      "interpretation": "1 sentence interpretation"\n    }\n  ],\n  "support": "nearest support level estimate",\n  "resistance": "nearest resistance level estimate",\n  "recommendation": "1 sentence actionable recommendation for traders"\n}\n\nKeep indicators to 3-5 items. Be specific with numbers.';
+
+    return groqFetch([{ role: 'user', content: prompt }], 700, 0.3);
+  }
+
+  return { getKey, setKey, hasKey, analyzeNews, analyzeAnalysts, analyzeMacro, summarizeTranscript, generateVerdict, analyzeFundamentals, analyzeTechnicals };
 })();

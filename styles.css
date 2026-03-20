@@ -9,6 +9,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 
 /* Layout */
 #app { display: flex; height: 100vh; overflow: hidden; }
+#app.hidden { display: none; }
 .sidebar {
   width: var(--sidebar-w); min-width: var(--sidebar-w); height: 100vh;
   background: var(--card); border-right: 1px solid var(--border);
@@ -606,6 +607,198 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .about-roadmap-item.low .about-roadmap-tag { background: rgba(139,143,163,0.15); color: var(--muted); }
 .about-roadmap-label { font-size: 0.75rem; font-weight: 600; min-width: 160px; flex-shrink: 0; }
 .about-roadmap-desc { font-size: 0.65rem; color: var(--muted); line-height: 1.4; }
+
+/* Login screen */
+.login-overlay {
+  position: fixed; inset: 0; background: var(--bg);
+  display: flex; align-items: center; justify-content: center; z-index: 300;
+}
+.login-overlay.hidden { display: none; }
+.login-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+  padding: 2.5rem 2rem; text-align: center; max-width: 400px; width: 90vw;
+}
+.login-logo { font-size: 3rem; margin-bottom: 0.5rem; }
+.login-title { font-size: 1.4rem; font-weight: 800; margin-bottom: 0.3rem; }
+.login-subtitle { font-size: 0.82rem; color: var(--muted); margin-bottom: 1.5rem; line-height: 1.5; }
+.login-google-btn { display: flex; justify-content: center; margin-bottom: 1rem; min-height: 44px; }
+.login-config { margin-top: 1rem; }
+.login-config.hidden { display: none; }
+.login-config-label { font-size: 0.75rem; color: var(--muted); margin-bottom: 0.5rem; }
+.login-config-input {
+  width: 100%; padding: 0.55rem 0.75rem; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; color: var(--text);
+  font-size: 0.82rem; outline: none; margin-bottom: 0.5rem;
+}
+.login-config-input:focus { border-color: var(--accent); }
+.login-config-save {
+  width: 100%; padding: 0.55rem; background: var(--accent); color: #fff;
+  border: none; border-radius: 6px; cursor: pointer; font-size: 0.82rem; font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+.login-config-save:hover { background: var(--accent-hover); }
+.login-config-help { font-size: 0.68rem; color: var(--muted); line-height: 1.5; }
+.login-config-help a { color: var(--accent-hover); }
+.login-privacy { font-size: 0.62rem; color: var(--muted); margin-top: 1rem; line-height: 1.5; opacity: 0.7; }
+
+/* Sidebar user area */
+.sidebar-user {
+  padding: 0.6rem 1rem; border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  min-height: 44px;
+}
+.user-info {
+  display: flex; align-items: center; gap: 0.5rem; min-width: 0;
+}
+.user-name {
+  font-size: 0.72rem; color: var(--muted); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 140px;
+}
+.user-logout-btn {
+  background: none; border: 1px solid var(--border); color: var(--muted);
+  border-radius: 4px; cursor: pointer; font-size: 0.82rem; padding: 0.15rem 0.4rem;
+  transition: border-color 0.15s, color 0.15s;
+}
+.user-logout-btn:hover { border-color: var(--red); color: var(--red); }
+
+/* About Company tile */
+.tile-about-company { grid-column: 1 / -1; }
+.about-company-desc {
+  font-size: 0.78rem; line-height: 1.6; color: var(--muted);
+  max-height: 4.8em; overflow: hidden; transition: max-height 0.3s;
+}
+.about-company-desc.expanded { max-height: none; }
+.about-company-toggle {
+  background: none; border: none; color: var(--accent); cursor: pointer;
+  font-size: 0.68rem; padding: 0.2rem 0; font-weight: 600;
+}
+.about-company-toggle:hover { color: var(--accent-hover); }
+.about-company-meta {
+  display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem;
+}
+.about-company-tag {
+  display: inline-block; font-size: 0.62rem; font-weight: 600;
+  background: var(--bg); color: var(--muted); padding: 0.2rem 0.5rem;
+  border-radius: 4px; border: 1px solid var(--border);
+}
+
+/* Technical Indicators tile */
+.tile-technicals { grid-column: 1 / -1; }
+.technicals-signal-row {
+  display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;
+}
+.technicals-signal-badge {
+  display: inline-block; font-size: 0.68rem; font-weight: 700;
+  padding: 0.2rem 0.6rem; border-radius: 4px; text-transform: uppercase;
+}
+.technicals-signal-badge.BULLISH { background: rgba(34,197,94,0.15); color: var(--green); }
+.technicals-signal-badge.BEARISH { background: rgba(239,68,68,0.15); color: var(--red); }
+.technicals-signal-badge.NEUTRAL { background: rgba(139,143,163,0.15); color: var(--muted); }
+.technicals-gauges {
+  display: flex; gap: 0.75rem; margin: 0.5rem 0; flex-wrap: wrap;
+}
+.technicals-gauge {
+  flex: 1; min-width: 100px; background: var(--bg); border-radius: 8px;
+  padding: 0.5rem 0.6rem; text-align: center;
+}
+.technicals-gauge-label {
+  font-size: 0.58rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.4px; color: var(--muted);
+}
+.technicals-gauge-val { font-size: 1.1rem; font-weight: 800; margin: 0.15rem 0; }
+.technicals-gauge-interp { font-size: 0.58rem; color: var(--muted); }
+.technicals-levels {
+  display: flex; gap: 0.75rem; margin-top: 0.5rem;
+}
+.technicals-level {
+  flex: 1; background: var(--bg); border-radius: 6px;
+  padding: 0.4rem 0.6rem; text-align: center;
+}
+.technicals-level-label {
+  font-size: 0.55rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.4px; color: var(--muted);
+}
+.technicals-level-val { font-size: 0.85rem; font-weight: 700; }
+
+/* Dividends tile */
+.tile-dividends { grid-column: 1 / -1; }
+.dividends-summary {
+  display: flex; gap: 0.5rem; flex-wrap: wrap;
+}
+.dividends-summary-box {
+  flex: 1; min-width: 90px; background: var(--bg); border-radius: 6px;
+  padding: 0.5rem; text-align: center;
+}
+.dividends-summary-val { font-size: 1.1rem; font-weight: 800; }
+.dividends-summary-label {
+  font-size: 0.55rem; color: var(--muted); text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+/* SEC Filings tile */
+.tile-sec { grid-column: 1 / -1; }
+.sec-filing-item {
+  display: flex; align-items: center; gap: 0.6rem;
+  background: var(--bg); border-radius: 6px; padding: 0.5rem 0.65rem;
+  margin-bottom: 0.3rem; text-decoration: none; color: var(--text);
+  border: 1px solid transparent; transition: border-color 0.15s;
+}
+.sec-filing-item:hover { border-color: var(--accent); }
+.sec-filing-type {
+  display: inline-block; font-size: 0.55rem; font-weight: 700;
+  padding: 0.15rem 0.4rem; border-radius: 3px; text-transform: uppercase;
+  white-space: nowrap; min-width: 42px; text-align: center;
+  background: rgba(99,102,241,0.15); color: var(--accent);
+}
+.sec-filing-type.type-10K { background: rgba(34,197,94,0.15); color: var(--green); }
+.sec-filing-type.type-10Q { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.sec-filing-type.type-8K { background: rgba(239,68,68,0.15); color: var(--red); }
+.sec-filing-title { font-size: 0.75rem; font-weight: 600; line-height: 1.3; }
+.sec-filing-date { font-size: 0.62rem; color: var(--muted); white-space: nowrap; margin-left: auto; }
+
+/* Price Alerts tile */
+.tile-alerts { grid-column: 1 / -1; }
+.alerts-list {
+  display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.5rem;
+}
+.alert-item {
+  display: flex; align-items: center; gap: 0.5rem;
+  background: var(--bg); border-radius: 6px; padding: 0.45rem 0.6rem;
+  font-size: 0.75rem;
+}
+.alert-item-type {
+  display: inline-block; font-size: 0.55rem; font-weight: 700;
+  padding: 0.1rem 0.35rem; border-radius: 3px; text-transform: uppercase;
+}
+.alert-item-type.above { background: rgba(34,197,94,0.15); color: var(--green); }
+.alert-item-type.below { background: rgba(239,68,68,0.15); color: var(--red); }
+.alert-item-price { font-weight: 700; }
+.alert-item-current { color: var(--muted); font-size: 0.68rem; }
+.alert-triggered {
+  font-size: 0.55rem; font-weight: 700; padding: 0.1rem 0.35rem;
+  border-radius: 3px; background: rgba(34,197,94,0.2); color: var(--green);
+  text-transform: uppercase; animation: pulse 1.5s infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+.alert-item-remove {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: 1rem; margin-left: auto; padding: 0 0.2rem;
+}
+.alert-item-remove:hover { color: var(--red); }
+.alert-form {
+  display: flex; align-items: center; gap: 0.4rem; margin-top: 0.3rem;
+}
+.alert-form select, .alert-form input {
+  padding: 0.35rem 0.5rem; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 5px; color: var(--text); font-size: 0.75rem; outline: none;
+}
+.alert-form select { min-width: 70px; }
+.alert-form input { flex: 1; min-width: 80px; }
+.alert-form button {
+  padding: 0.35rem 0.7rem; background: var(--accent); color: #fff;
+  border: none; border-radius: 5px; cursor: pointer; font-size: 0.72rem; font-weight: 600;
+}
+.alert-form button:hover { background: var(--accent-hover); }
 
 /* Responsive */
 @media (max-width: 800px) {

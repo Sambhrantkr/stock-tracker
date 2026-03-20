@@ -5,8 +5,8 @@
 const StockAPI = (() => {
   const BASE = 'https://finnhub.io/api/v1';
 
-  function getKey() { return localStorage.getItem('fh_api_key') || ''; }
-  function setKey(key) { localStorage.setItem('fh_api_key', key.trim()); }
+  function getKey() { return (typeof Auth !== 'undefined' && Auth.isLoggedIn()) ? (Auth.getItem('fh_api_key') || '') : (localStorage.getItem('fh_api_key') || ''); }
+  function setKey(key) { if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('fh_api_key', key.trim()); else localStorage.setItem('fh_api_key', key.trim()); }
   function hasKey() { return getKey().length > 0; }
 
   let statusCb = null;
@@ -16,64 +16,95 @@ const StockAPI = (() => {
   async function fhGet(path) {
     const sep = path.includes('?') ? '&' : '?';
     const url = `${BASE}${path}${sep}token=${getKey()}`;
-    const res = await fetch(url);
-    if (res.status === 429) throw new Error('Rate limited. Wait a moment and try again.');
-    if (res.status === 401 || res.status === 403) throw new Error('Invalid API key. Check your Finnhub key.');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
+    var res;
+    try {
+      var controller = new AbortController();
+      var timeoutId = setTimeout(function() { controller.abort(); }, 15000);
+      res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+    } catch (e) {
+      if (e.name === 'AbortError') throw new Error('Request timed out. Check your connection.');
+      throw new Error('Network error: ' + (e.message || 'Could not reach Finnhub. Check your internet connection.'));
+    }
+    if (res.status === 429) throw new Error('Finnhub rate limit (60/min). Wait a moment and try again.');
+    if (res.status === 401 || res.status === 403) throw new Error('Invalid Finnhub API key. Check Settings.');
+    if (!res.ok) throw new Error('Finnhub HTTP ' + res.status);
+    var data;
+    try {
+      data = await res.json();
+    } catch (e) {
+      throw new Error('Invalid response from Finnhub (not JSON).');
+    }
+    return data;
   }
 
   /** Search — returns [{symbol, name, type}] */
   async function searchTicker(query) {
-    status(`Searching "${query}"…`);
-    const data = await fhGet(`/search?q=${encodeURIComponent(query)}`);
-    status('');
-    return (data.result || [])
-      .filter(r => ['Common Stock', 'ETP', 'ETF'].includes(r.type))
-      .slice(0, 10)
-      .map(r => ({
-        symbol: r.symbol,
-        name: r.description,
-        type: r.type === 'Common Stock' ? 'Equity' : 'ETF',
-      }));
+    status('Searching "' + query + '"…');
+    try {
+      const data = await fhGet(`/search?q=${encodeURIComponent(query)}`);
+      status('');
+      return (data.result || [])
+        .filter(r => ['Common Stock', 'ETP', 'ETF'].includes(r.type))
+        .slice(0, 10)
+        .map(r => ({
+          symbol: r.symbol,
+          name: r.description,
+          type: r.type === 'Common Stock' ? 'Equity' : 'ETF',
+        }));
+    } catch (e) {
+      status('');
+      throw e;
+    }
   }
 
   /** Quote — {price, change, changePct, high, low, prevClose} */
   async function getQuote(symbol) {
-    status(`Quote ${symbol}…`);
-    const q = await fhGet(`/quote?symbol=${encodeURIComponent(symbol)}`);
-    if (!q || q.c === 0 || q.c === undefined || q.c === null) throw new Error(`No quote data for ${symbol}`);
-    status('');
-    return {
-      price: q.c, change: q.d || 0, changePct: q.dp || 0,
-      high: q.h || 0, low: q.l || 0, prevClose: q.pc || 0,
-    };
+    status('Quote ' + symbol + '…');
+    try {
+      const q = await fhGet(`/quote?symbol=${encodeURIComponent(symbol)}`);
+      if (!q || q.c === 0 || q.c === undefined || q.c === null) throw new Error('No quote data for ' + symbol);
+      status('');
+      return {
+        price: q.c, change: q.d || 0, changePct: q.dp || 0,
+        high: q.h || 0, low: q.l || 0, prevClose: q.pc || 0,
+      };
+    } catch (e) {
+      status('');
+      throw e;
+    }
   }
 
   /** Company profile — {name, sector, marketCap, logo, finnhubIndustry} */
   async function getProfile(symbol) {
-    status(`Profile ${symbol}…`);
-    const p = await fhGet(`/stock/profile2?symbol=${encodeURIComponent(symbol)}`);
-    status('');
-    if (!p || !p.name) return null;
-    return {
-      name: p.name,
-      sector: p.finnhubIndustry || 'N/A',
-      marketCap: p.marketCapitalization ? p.marketCapitalization * 1e6 : null, // Finnhub returns in millions
-      logo: p.logo || '',
-      exchange: p.exchange || '',
-      ipo: p.ipo || '',
-      weburl: p.weburl || '',
-    };
+    status('Profile ' + symbol + '…');
+    try {
+      const p = await fhGet(`/stock/profile2?symbol=${encodeURIComponent(symbol)}`);
+      status('');
+      if (!p || !p.name) return null;
+      return {
+        name: p.name,
+        sector: p.finnhubIndustry || 'N/A',
+        marketCap: p.marketCapitalization ? p.marketCapitalization * 1e6 : null,
+        logo: p.logo || '',
+        exchange: p.exchange || '',
+        ipo: p.ipo || '',
+        weburl: p.weburl || '',
+      };
+    } catch (e) {
+      status('');
+      throw e;
+    }
   }
 
   /** Basic financials — KPIs + historical annual series */
   async function getBasicFinancials(symbol) {
-    status(`Financials ${symbol}…`);
-    const data = await fhGet(`/stock/metric?symbol=${encodeURIComponent(symbol)}&metric=all`);
-    status('');
-    const m = data.metric || {};
-    const series = data.series || {};
+    status('Financials ' + symbol + '…');
+    try {
+      const data = await fhGet(`/stock/metric?symbol=${encodeURIComponent(symbol)}&metric=all`);
+      status('');
+      const m = data.metric || {};
+      const series = data.series || {};
     return {
       peRatio: m.peNormalizedAnnual != null ? m.peNormalizedAnnual.toFixed(1) : (m.peTTM != null ? m.peTTM.toFixed(1) : 'N/A'),
       peTTM: m.peTTM || null,
@@ -103,41 +134,55 @@ const StockAPI = (() => {
       quickRatio: m.quickRatioQuarterly != null ? m.quickRatioQuarterly : null,
       annualSeries: series.annual || {},
     };
+    } catch (e) {
+      status('');
+      throw e;
+    }
   }
 
   /** Company news — returns [{title, url, publisher, date, summary, sentiment}] */
   async function getNews(symbol) {
-    status(`News ${symbol}…`);
-    const to = new Date().toISOString().slice(0, 10);
-    const from = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10); // last 30 days
-    const articles = await fhGet(`/company-news?symbol=${encodeURIComponent(symbol)}&from=${from}&to=${to}`);
-    status('');
-    if (!Array.isArray(articles)) return [];
-    return articles.slice(0, 15).map(a => ({
-      title: a.headline || 'Untitled',
-      url: a.url || '#',
-      publisher: a.source || 'Unknown',
-      date: a.datetime ? new Date(a.datetime * 1000).toLocaleDateString() : '',
-      summary: a.summary || '',
-      sentiment: a.sentiment || null,
-    }));
+    status('News ' + symbol + '…');
+    try {
+      const to = new Date().toISOString().slice(0, 10);
+      const from = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+      const articles = await fhGet(`/company-news?symbol=${encodeURIComponent(symbol)}&from=${from}&to=${to}`);
+      status('');
+      if (!Array.isArray(articles)) return [];
+      return articles.slice(0, 15).map(a => ({
+        title: a.headline || 'Untitled',
+        url: a.url || '#',
+        publisher: a.source || 'Unknown',
+        date: a.datetime ? new Date(a.datetime * 1000).toLocaleDateString() : '',
+        summary: a.summary || '',
+        sentiment: a.sentiment || null,
+      }));
+    } catch (e) {
+      status('');
+      throw e;
+    }
   }
 
   /** Earnings — last 8 quarters [{period, actual, estimate, surprise, surprisePct}] */
   async function getEarnings(symbol) {
     status('Earnings ' + symbol + '\u2026');
-    var data = await fhGet('/stock/earnings?symbol=' + encodeURIComponent(symbol));
-    status('');
-    if (!Array.isArray(data)) return [];
-    return data.slice(0, 8).map(function(e) {
-      return {
-        period: e.period || '',
-        actual: e.actual,
-        estimate: e.estimate,
-        surprise: e.surprise,
-        surprisePct: e.surprisePercent,
-      };
-    });
+    try {
+      var data = await fhGet('/stock/earnings?symbol=' + encodeURIComponent(symbol));
+      status('');
+      if (!Array.isArray(data)) return [];
+      return data.slice(0, 8).map(function(e) {
+        return {
+          period: e.period || '',
+          actual: e.actual,
+          estimate: e.estimate,
+          surprise: e.surprise,
+          surprisePct: e.surprisePercent,
+        };
+      });
+    } catch (e) {
+      status('');
+      throw e;
+    }
   }
 
   /** Upcoming earnings calendar — returns {date, epsEstimate, revenueEstimate, quarter, year} or null */
@@ -197,10 +242,15 @@ const StockAPI = (() => {
   /** Analyst recommendations — returns [{period, buy, hold, sell, strongBuy, strongSell}] */
   async function getRecommendations(symbol) {
     status('Recommendations ' + symbol + '\u2026');
-    const data = await fhGet('/stock/recommendation?symbol=' + encodeURIComponent(symbol));
-    status('');
-    if (!Array.isArray(data)) return [];
-    return data.slice(0, 6);
+    try {
+      const data = await fhGet('/stock/recommendation?symbol=' + encodeURIComponent(symbol));
+      status('');
+      if (!Array.isArray(data)) return [];
+      return data.slice(0, 6);
+    } catch (e) {
+      status('');
+      throw e;
+    }
   }
 
   /** Analyst upgrades/downgrades (last 30 days) — returns [{gradeDate, company, fromGrade, toGrade, action}] */
@@ -250,14 +300,18 @@ const StockAPI = (() => {
     for (var i = 0; i < PROXIES.length; i++) {
       try {
         var proxyUrl = PROXIES[i](targetUrl);
-        var res = await fetch(proxyUrl);
+        var controller = new AbortController();
+        var timeoutId = setTimeout(function() { controller.abort(); }, 15000);
+        var res = await fetch(proxyUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
         if (res.ok) return res;
-        lastErr = new Error('HTTP ' + res.status);
+        lastErr = new Error('Proxy HTTP ' + res.status);
       } catch (e) {
-        lastErr = e;
+        if (e.name === 'AbortError') lastErr = new Error('Proxy request timed out');
+        else lastErr = e;
       }
     }
-    throw lastErr || new Error('All proxies failed');
+    throw lastErr || new Error('All CORS proxies failed. Try again later.');
   }
 
   async function getChartData(symbol, range) {
@@ -299,47 +353,61 @@ const StockAPI = (() => {
   /** General / macro market news — returns [{title, url, publisher, date, summary}] */
   async function getMarketNews() {
     status('Macro news\u2026');
-    var data = await fhGet('/news?category=general');
-    status('');
-    if (!Array.isArray(data)) return [];
-    return data.slice(0, 20).map(function(a) {
-      return {
-        title: a.headline || 'Untitled',
-        url: a.url || '#',
-        publisher: a.source || 'Unknown',
-        date: a.datetime ? new Date(a.datetime * 1000).toLocaleDateString() : '',
-        summary: a.summary || '',
-      };
-    });
+    try {
+      var data = await fhGet('/news?category=general');
+      status('');
+      if (!Array.isArray(data)) return [];
+      return data.slice(0, 20).map(function(a) {
+        return {
+          title: a.headline || 'Untitled',
+          url: a.url || '#',
+          publisher: a.source || 'Unknown',
+          date: a.datetime ? new Date(a.datetime * 1000).toLocaleDateString() : '',
+          summary: a.summary || '',
+        };
+      });
+    } catch (e) {
+      status('');
+      throw e;
+    }
   }
 
   /** Peer companies — returns [symbol, symbol, ...] */
   async function getPeers(symbol) {
     status('Peers ' + symbol + '\u2026');
-    var data = await fhGet('/stock/peers?symbol=' + encodeURIComponent(symbol));
-    status('');
-    if (!Array.isArray(data)) return [];
-    // Filter out the stock itself and limit to 5
-    return data.filter(function(s) { return s !== symbol; }).slice(0, 5);
+    try {
+      var data = await fhGet('/stock/peers?symbol=' + encodeURIComponent(symbol));
+      status('');
+      if (!Array.isArray(data)) return [];
+      return data.filter(function(s) { return s !== symbol; }).slice(0, 5);
+    } catch (e) {
+      status('');
+      throw e;
+    }
   }
 
   /** Insider transactions — returns [{name, share, change, filingDate, transactionDate, code, price}] */
   async function getInsiderTransactions(symbol) {
     status('Insider trades ' + symbol + '\u2026');
-    var data = await fhGet('/stock/insider-transactions?symbol=' + encodeURIComponent(symbol));
-    status('');
-    if (!data || !data.data || !Array.isArray(data.data)) return [];
-    return data.data.slice(0, 30).map(function(t) {
-      return {
-        name: t.name || 'Unknown',
-        share: t.share || 0,
-        change: t.change || 0,
-        filingDate: t.filingDate || '',
-        transactionDate: t.transactionDate || '',
-        code: t.transactionCode || '',
-        price: t.transactionPrice || null,
-      };
-    });
+    try {
+      var data = await fhGet('/stock/insider-transactions?symbol=' + encodeURIComponent(symbol));
+      status('');
+      if (!data || !data.data || !Array.isArray(data.data)) return [];
+      return data.data.slice(0, 30).map(function(t) {
+        return {
+          name: t.name || 'Unknown',
+          share: t.share || 0,
+          change: t.change || 0,
+          filingDate: t.filingDate || '',
+          transactionDate: t.transactionDate || '',
+          code: t.transactionCode || '',
+          price: t.transactionPrice || null,
+        };
+      });
+    } catch (e) {
+      status('');
+      throw e;
+    }
   }
 
   /** ETF holdings — returns {symbol, atDate, holdings: [{symbol, name, percent, value, share}]} */
@@ -369,11 +437,51 @@ const StockAPI = (() => {
     }
   }
 
+  /** SEC EDGAR filings — returns [{date, type, title, url, accessionNo}] */
+  async function getSECFilings(symbol) {
+    status('SEC filings ' + symbol + '\u2026');
+    try {
+      var tickerUrl = 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=&CIK=' + encodeURIComponent(symbol) + '&type=10-K%2C10-Q%2C8-K&dateb=&owner=include&count=15&search_text=&action=getcompany&output=atom';
+      var res = await fetchViaProxy(tickerUrl);
+      var text = await res.text();
+      status('');
+      var filings = [];
+      var parser = new DOMParser();
+      var doc = parser.parseFromString(text, 'text/xml');
+      var parseError = doc.querySelector('parsererror');
+      if (parseError) throw new Error('Could not parse SEC EDGAR response.');
+      var entries = doc.querySelectorAll('entry');
+      entries.forEach(function(entry) {
+        var title = entry.querySelector('title') ? entry.querySelector('title').textContent : '';
+        var link = entry.querySelector('link');
+        var href = link ? link.getAttribute('href') : '';
+        var updated = entry.querySelector('updated') ? entry.querySelector('updated').textContent : '';
+        var summary = entry.querySelector('summary') ? entry.querySelector('summary').textContent : '';
+        var typeMatch = title.match(/^(10-K|10-Q|8-K)/);
+        var filingType = typeMatch ? typeMatch[1] : '';
+        if (filingType) {
+          filings.push({
+            date: updated ? updated.slice(0, 10) : '',
+            type: filingType,
+            title: title,
+            url: href.indexOf('http') === 0 ? href : 'https://www.sec.gov' + href,
+            summary: summary.replace(/<[^>]+>/g, '').trim().slice(0, 300),
+          });
+        }
+      });
+      if (!filings.length) throw new Error('No SEC filings found for ' + symbol + '. Try a US-listed stock.');
+      return filings.slice(0, 15);
+    } catch (e) {
+      status('');
+      throw e;
+    }
+  }
+
   return {
     getKey, setKey, hasKey, onStatus,
     searchTicker, getQuote, getProfile, getBasicFinancials,
     getNews, getEarnings, computePEHistory, getRecommendations,
     getUpgradeDowngrade, getChartData, getMarketNews, getEarningsCalendar,
-    getPeers, getInsiderTransactions, getETFHoldings,
+    getPeers, getInsiderTransactions, getETFHoldings, getSECFilings,
   };
 })();

@@ -6,9 +6,30 @@
   <title>Stock Tracker</title>
   <link rel="stylesheet" href="styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
-  <div id="app">
+  <!-- Login Screen -->
+  <div id="login-overlay" class="login-overlay">
+    <div class="login-card">
+      <div class="login-logo">📈</div>
+      <h1 class="login-title">Stock Tracker</h1>
+      <p class="login-subtitle">Sign in with Google to save your API keys and watchlist privately.</p>
+      <div id="google-signin-btn" class="login-google-btn"></div>
+      <div id="login-config-section" class="login-config hidden">
+        <p class="login-config-label">First-time setup: Enter your Google OAuth Client ID</p>
+        <input type="text" id="login-client-id-input" class="login-config-input" placeholder="Paste Google Client ID..." aria-label="Google OAuth Client ID" />
+        <button id="login-save-client-id" class="login-config-save">Save & Reload</button>
+        <p class="login-config-help">
+          <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Create one here</a> — 
+          OAuth 2.0 Client ID (Web), add your site URL to Authorized JavaScript Origins.
+        </p>
+      </div>
+      <p class="login-privacy">Your API keys and data are stored locally in your browser, scoped to your Google account. Nothing is sent to any server.</p>
+    </div>
+  </div>
+
+  <div id="app" class="hidden">
     <!-- Sidebar -->
     <aside id="sidebar" class="sidebar">
       <div class="sidebar-header">
@@ -23,6 +44,7 @@
         <ul id="suggestions" class="suggestions" role="listbox" aria-label="Stock suggestions"></ul>
       </div>
       <div id="stock-list" class="stock-list"></div>
+      <div id="sidebar-user" class="sidebar-user"></div>
     </aside>
 
     <!-- Main detail panel -->
@@ -57,8 +79,16 @@
           <div class="tile tile-chart" id="tile-chart">
             <div id="tradingview-widget" class="tradingview-container"></div>
           </div>
+          <div class="tile tile-about-company" id="tile-about-company">
+            <div class="tile-title">🏢 About the Company</div>
+            <div id="detail-about-company"><div class="tile-loading">Loading...</div></div>
+          </div>
           <div class="tile tile-kpis" id="tile-kpis"><div class="tile-title">Key Metrics</div><div id="detail-kpis" class="kpis"><div class="tile-loading">Loading...</div></div></div>
           <div class="tile tile-pe" id="tile-pe"><div class="tile-title">P/E Ratio History</div><div class="chart-container"><canvas id="detail-pe-chart"></canvas></div></div>
+          <div class="tile tile-technicals" id="tile-technicals">
+            <div class="tile-title-row"><span class="tile-title">📐 Technical Indicators</span><button class="ai-btn" id="detail-technicals-btn" disabled>Load & Analyze</button></div>
+            <div id="detail-technicals-content"><div class="tile-loading">Click Load & Analyze to view RSI, MACD, SMA (3 AV calls).</div></div>
+          </div>
           <div class="tile tile-etf-holdings" id="tile-etf-holdings">
             <div class="tile-title">🏗️ ETF Holdings</div>
             <div id="detail-etf-holdings"><div class="tile-loading">Loading...</div></div>
@@ -71,6 +101,10 @@
             <div class="tile-title">📅 Earnings & EPS Surprise</div>
             <div id="detail-earnings-content"><div class="tile-loading">Loading...</div></div>
           </div>
+          <div class="tile tile-dividends" id="tile-dividends">
+            <div class="tile-title">💎 Dividend History & Growth</div>
+            <div id="detail-dividends-content"><div class="tile-loading">Loading...</div></div>
+          </div>
           <div class="tile tile-fundamentals" id="tile-fundamentals">
             <div class="tile-title-row"><span class="tile-title">📊 Company Fundamentals & Sentiment</span><button class="ai-btn" id="detail-fundamentals-btn" disabled>Load & Analyze</button></div>
             <div id="detail-fundamentals-content"><div class="tile-loading">Click Load & Analyze to view growth, margins, financial health, and sentiment.</div></div>
@@ -78,6 +112,10 @@
           <div class="tile tile-insider" id="tile-insider">
             <div class="tile-title">🕵️ Insider Trading</div>
             <div id="detail-insider-content"><div class="tile-loading">Loading...</div></div>
+          </div>
+          <div class="tile tile-sec" id="tile-sec">
+            <div class="tile-title-row"><span class="tile-title">📋 SEC Filings</span><button class="ai-btn" id="detail-sec-btn" disabled>Load Filings</button></div>
+            <div id="detail-sec-content"><div class="tile-loading">Click Load Filings to fetch latest 10-K, 10-Q, 8-K from SEC EDGAR.</div></div>
           </div>
           <div class="tile tile-ai" id="tile-ai">
             <div class="tile-title-row"><span class="tile-title">🤖 AI News Summary & Impact</span><button class="ai-btn" id="detail-ai-btn" disabled>Analyze</button></div>
@@ -98,6 +136,10 @@
           <div class="tile tile-peers" id="tile-peers">
             <div class="tile-title-row"><span class="tile-title">👥 Peer Comparison</span><button class="ai-btn" id="detail-peers-btn" disabled>Load Peers</button></div>
             <div id="detail-peers-content"><div class="tile-loading">Click Load Peers to compare KPIs against sector peers.</div></div>
+          </div>
+          <div class="tile tile-alerts" id="tile-alerts">
+            <div class="tile-title-row"><span class="tile-title">🔔 Price Alerts</span><button class="ai-btn" id="detail-alerts-add-btn">+ Add Alert</button></div>
+            <div id="detail-alerts-content"><div class="tile-loading">Set target prices to get browser notifications.</div></div>
           </div>
           <div class="tile tile-news" id="tile-news">
             <div class="tile-title-row"><span class="tile-title">📰 Latest News</span><button class="ai-btn" id="detail-news-refresh-btn">Refresh</button></div>
@@ -193,6 +235,36 @@
                 <div class="about-card-title">Revenue & Income Trend</div>
                 <div class="about-card-desc">Quarterly revenue bars + net income line chart via Alpha Vantage. Visual growth story at a glance.</div>
               </div>
+              <div class="about-card">
+                <div class="about-card-icon">🏢</div>
+                <div class="about-card-title">About the Company</div>
+                <div class="about-card-desc">Collapsible business description from Alpha Vantage with sector, exchange, IPO date, employees, and website.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">📐</div>
+                <div class="about-card-title">Technical Indicators</div>
+                <div class="about-card-desc">RSI, MACD, SMA 50/200 with golden/death cross detection, support/resistance levels, and AI interpretation.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">💎</div>
+                <div class="about-card-title">Dividends</div>
+                <div class="about-card-desc">Dividend yield, per share, payout ratio, ex-dividend date, pay date, and payout health assessment.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">📋</div>
+                <div class="about-card-title">SEC Filings</div>
+                <div class="about-card-desc">Latest 10-K, 10-Q, 8-K filings from SEC EDGAR with type badges and direct links to full documents.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">🔔</div>
+                <div class="about-card-title">Price Alerts</div>
+                <div class="about-card-desc">Set above/below price targets with browser notifications. Checked every 60s refresh cycle. Persisted in localStorage.</div>
+              </div>
+              <div class="about-card">
+                <div class="about-card-icon">🔐</div>
+                <div class="about-card-title">Google Sign-In</div>
+                <div class="about-card-desc">Sign in with Google to isolate your API keys and watchlist. Each user gets private, scoped data stored locally in the browser.</div>
+              </div>
             </div>
           </div>
           <div class="about-section">
@@ -205,18 +277,8 @@
               </div>
               <div class="about-roadmap-item medium">
                 <span class="about-roadmap-tag">MEDIUM</span>
-                <span class="about-roadmap-label">SEC Filings Monitor</span>
-                <span class="about-roadmap-desc">Latest 10-K, 10-Q, 8-K filings with AI summary of key changes and risk factors.</span>
-              </div>
-              <div class="about-roadmap-item medium">
-                <span class="about-roadmap-tag">MEDIUM</span>
-                <span class="about-roadmap-label">Technical Indicators Overlay</span>
-                <span class="about-roadmap-desc">RSI, MACD, Bollinger Bands with AI interpretation of current technical setup.</span>
-              </div>
-              <div class="about-roadmap-item medium">
-                <span class="about-roadmap-tag">MEDIUM</span>
-                <span class="about-roadmap-label">Price Alerts</span>
-                <span class="about-roadmap-desc">Set target prices and get browser notifications when thresholds are crossed.</span>
+                <span class="about-roadmap-label">Institutional Ownership</span>
+                <span class="about-roadmap-desc">Track who's buying/selling big blocks — Vanguard increasing position = conviction signal. Requires premium data source.</span>
               </div>
               <div class="about-roadmap-item low">
                 <span class="about-roadmap-tag">NICE TO HAVE</span>
@@ -239,6 +301,7 @@
       </div>
     </div>
   </div>
+  <script src="auth.js"></script>
   <script src="api.js"></script>
   <script src="alpha.js"></script>
   <script src="ai.js"></script>

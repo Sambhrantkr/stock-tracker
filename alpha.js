@@ -6,19 +6,28 @@
 var AlphaAPI = (function() {
   var BASE = 'https://www.alphavantage.co/query';
 
-  function getKey() { return localStorage.getItem('av_api_key') || ''; }
-  function setKey(key) { localStorage.setItem('av_api_key', key.trim()); }
+  function getKey() { return (typeof Auth !== 'undefined' && Auth.isLoggedIn()) ? (Auth.getItem('av_api_key') || '') : (localStorage.getItem('av_api_key') || ''); }
+  function setKey(key) { if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('av_api_key', key.trim()); else localStorage.setItem('av_api_key', key.trim()); }
   function hasKey() { return getKey().length > 0; }
 
   function avGet(params) {
     var url = BASE + '?' + params + '&apikey=' + getKey();
-    return fetch(url).then(function(res) {
-      if (!res.ok) throw new Error('AV HTTP ' + res.status);
+    var controller = new AbortController();
+    var timeoutId = setTimeout(function() { controller.abort(); }, 20000);
+    return fetch(url, { signal: controller.signal }).then(function(res) {
+      clearTimeout(timeoutId);
+      if (!res.ok) throw new Error('Alpha Vantage HTTP ' + res.status);
       return res.json();
     }).then(function(data) {
-      if (data['Note']) throw new Error('Alpha Vantage rate limit (25/day). Try again later.');
-      if (data['Error Message']) throw new Error('AV: ' + data['Error Message']);
+      if (data['Note']) throw new Error('Alpha Vantage rate limit (25/day). Try again tomorrow.');
+      if (data['Error Message']) throw new Error('Alpha Vantage: ' + data['Error Message']);
+      if (data['Information'] && data['Information'].indexOf('rate limit') !== -1) throw new Error('Alpha Vantage rate limit (25/day). Try again tomorrow.');
       return data;
+    }).catch(function(e) {
+      clearTimeout(timeoutId);
+      if (e.name === 'AbortError') throw new Error('Alpha Vantage request timed out.');
+      if (e.message && e.message.indexOf('Alpha Vantage') !== -1) throw e;
+      throw new Error('Network error reaching Alpha Vantage: ' + (e.message || 'Check your connection.'));
     });
   }
 
@@ -169,6 +178,58 @@ var AlphaAPI = (function() {
     }
   }
 
+  /**
+   * RSI (Relative Strength Index) — daily, 14-period.
+   * Returns: [{date, rsi}] last 30 data points
+   */
+  async function getRSI(symbol) {
+    if (!hasKey()) return [];
+    try {
+      var data = await avGet('function=RSI&symbol=' + encodeURIComponent(symbol) + '&interval=daily&time_period=14&series_type=close');
+      if (!data || !data['Technical Analysis: RSI']) return [];
+      var raw = data['Technical Analysis: RSI'];
+      var dates = Object.keys(raw).sort().reverse().slice(0, 30);
+      return dates.map(function(d) { return { date: d, rsi: parseFloat(raw[d].RSI) }; });
+    } catch (e) { console.warn('AV RSI error:', e.message); return []; }
+  }
+
+  /**
+   * MACD — daily, 12/26/9.
+   * Returns: [{date, macd, signal, histogram}] last 30 data points
+   */
+  async function getMACD(symbol) {
+    if (!hasKey()) return [];
+    try {
+      var data = await avGet('function=MACD&symbol=' + encodeURIComponent(symbol) + '&interval=daily&series_type=close');
+      if (!data || !data['Technical Analysis: MACD']) return [];
+      var raw = data['Technical Analysis: MACD'];
+      var dates = Object.keys(raw).sort().reverse().slice(0, 30);
+      return dates.map(function(d) {
+        return {
+          date: d,
+          macd: parseFloat(raw[d].MACD),
+          signal: parseFloat(raw[d].MACD_Signal),
+          histogram: parseFloat(raw[d].MACD_Hist),
+        };
+      });
+    } catch (e) { console.warn('AV MACD error:', e.message); return []; }
+  }
+
+  /**
+   * SMA (Simple Moving Average) — daily.
+   * Returns: [{date, sma}] last 30 data points
+   */
+  async function getSMA(symbol, period) {
+    if (!hasKey()) return [];
+    try {
+      var data = await avGet('function=SMA&symbol=' + encodeURIComponent(symbol) + '&interval=daily&time_period=' + (period || 50) + '&series_type=close');
+      if (!data || !data['Technical Analysis: SMA']) return [];
+      var raw = data['Technical Analysis: SMA'];
+      var dates = Object.keys(raw).sort().reverse().slice(0, 30);
+      return dates.map(function(d) { return { date: d, sma: parseFloat(raw[d].SMA) }; });
+    } catch (e) { console.warn('AV SMA error:', e.message); return []; }
+  }
+
   return {
     getKey: getKey,
     setKey: setKey,
@@ -178,5 +239,8 @@ var AlphaAPI = (function() {
     getNewsSentiment: getNewsSentiment,
     getOverview: getOverview,
     getIncomeStatement: getIncomeStatement,
+    getRSI: getRSI,
+    getMACD: getMACD,
+    getSMA: getSMA,
   };
 })();
