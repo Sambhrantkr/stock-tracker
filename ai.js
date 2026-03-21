@@ -807,5 +807,66 @@ const NewsAI = (() => {
     return groqFetch([{ role: 'user', content: prompt }], 700, 0.3);
   }
 
-  return { getKey, setKey, hasKey, analyzeNews, analyzeAnalysts, analyzeMacro, summarizeTranscript, generateVerdict, analyzeFundamentals, analyzeTechnicals };
+  /**
+   * Chat with wealth advisor — streams text response (not JSON).
+   * messages: array of { role, content } (full conversation history)
+   * Returns plain text string (not parsed JSON).
+   */
+  async function chatAdvisor(messages, opts) {
+    var useModel = (opts && opts.model) || MODEL_DEEP;
+    var useTimeout = (opts && opts.timeoutMs) || 60000;
+    var maxTokens = (opts && opts.maxTokens) || 2048;
+    var retries = 3;
+    var waitMs = 5000;
+    for (var attempt = 0; attempt < retries; attempt++) {
+      var res;
+      try {
+        var controller = new AbortController();
+        var timeoutId = setTimeout(function() { controller.abort(); }, useTimeout);
+        res = await fetch(GROQ_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + getKey(),
+          },
+          body: JSON.stringify({
+            model: useModel,
+            messages: messages,
+            temperature: 0.5,
+            max_tokens: maxTokens,
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+      } catch (e) {
+        if (e.name === 'AbortError') {
+          if (attempt < retries - 1) { await new Promise(function(r) { setTimeout(r, 3000); }); continue; }
+          throw new Error('Request timed out. Try again.');
+        }
+        if (attempt < retries - 1) { await new Promise(function(r) { setTimeout(r, 2000); }); continue; }
+        throw new Error('Network error: ' + (e.message || 'Check connection.'));
+      }
+      if (res.status === 429 && attempt < retries - 1) {
+        var retryAfter = res.headers.get('retry-after');
+        var retryMs = retryAfter ? (parseFloat(retryAfter) * 1000 + 500) : waitMs;
+        await new Promise(function(r) { setTimeout(r, retryMs); });
+        waitMs = Math.min(waitMs * 2, 30000);
+        continue;
+      }
+      if (res.status === 429) throw new Error('Rate limited. Wait 30s and try again.');
+      if (res.status === 401) throw new Error('Invalid Groq API key. Check Settings.');
+      if (!res.ok) throw new Error('AI error: HTTP ' + res.status);
+      var data;
+      try { data = await res.json(); } catch (e) {
+        if (attempt < retries - 1) { await new Promise(function(r) { setTimeout(r, 2000); }); continue; }
+        throw new Error('Invalid AI response. Try again.');
+      }
+      var content = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+      if (!content.trim() && attempt < retries - 1) { await new Promise(function(r) { setTimeout(r, 2000); }); continue; }
+      return content.trim();
+    }
+    throw new Error('Failed after retries. Try again.');
+  }
+
+  return { getKey, setKey, hasKey, analyzeNews, analyzeAnalysts, analyzeMacro, summarizeTranscript, generateVerdict, analyzeFundamentals, analyzeTechnicals, chatAdvisor };
 })();

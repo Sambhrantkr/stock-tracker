@@ -445,6 +445,31 @@
       </div>
     </div>
   </div>
+  <!-- Chat Assistant -->
+  <button id="chat-fab" class="chat-fab" aria-label="Open wealth advisor chat" title="Ask your Wealth Advisor">💬</button>
+  <div id="chat-panel" class="chat-panel hidden">
+    <div class="chat-header">
+      <span class="chat-header-title">🧠 Wealth Advisor</span>
+      <div class="chat-header-actions">
+        <button id="chat-clear" class="chat-header-btn" title="Clear conversation">🗑️</button>
+        <button id="chat-close" class="chat-header-btn" title="Close">✕</button>
+      </div>
+    </div>
+    <div id="chat-messages" class="chat-messages">
+      <div class="chat-msg assistant">
+        <div class="chat-msg-content">Hi, I'm your AI wealth advisor. I have full access to all the stock data loaded on your dashboard. Ask me anything — portfolio strategy, stock analysis, comparisons, or market outlook.</div>
+      </div>
+    </div>
+    <div id="chat-thinking" class="chat-thinking hidden">
+      <div class="chat-thinking-dots"><span></span><span></span><span></span></div>
+      <span class="chat-thinking-label">Thinking deeply...</span>
+    </div>
+    <form id="chat-form" class="chat-input-area">
+      <input type="text" id="chat-input" class="chat-input" placeholder="Ask about your stocks, portfolio, market..." autocomplete="off" />
+      <button type="submit" id="chat-send" class="chat-send-btn">➤</button>
+    </form>
+  </div>
+
   <script src="auth.js"></script>
   <script src="api.js"></script>
   <script src="alpha.js"></script>

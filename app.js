@@ -4227,5 +4227,273 @@
     tryInit(30);
   }
 
+  // ===== Chat Assistant (Wealth Advisor) =====
+  (function initChat() {
+    var chatFab = document.getElementById('chat-fab');
+    var chatPanel = document.getElementById('chat-panel');
+    var chatClose = document.getElementById('chat-close');
+    var chatClear = document.getElementById('chat-clear');
+    var chatForm = document.getElementById('chat-form');
+    var chatInput = document.getElementById('chat-input');
+    var chatMessages = document.getElementById('chat-messages');
+    var chatThinking = document.getElementById('chat-thinking');
+    var chatSend = document.getElementById('chat-send');
+    if (!chatFab || !chatPanel) return;
+
+    var conversation = []; // { role, content } history
+    var isBusy = false;
+
+    chatFab.addEventListener('click', function() {
+      var isOpen = !chatPanel.classList.contains('hidden');
+      chatPanel.classList.toggle('hidden', isOpen);
+      chatFab.classList.toggle('active', !isOpen);
+      if (!isOpen) chatInput.focus();
+    });
+    chatClose.addEventListener('click', function() {
+      chatPanel.classList.add('hidden');
+      chatFab.classList.remove('active');
+    });
+    chatClear.addEventListener('click', function() {
+      conversation = [];
+      chatMessages.innerHTML = '<div class="chat-msg assistant"><div class="chat-msg-content">Conversation cleared. Ask me anything about your stocks.</div></div>';
+    });
+
+    function scrollToBottom() {
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function appendMsg(role, text) {
+      var div = document.createElement('div');
+      div.className = 'chat-msg ' + role;
+      var content = document.createElement('div');
+      content.className = 'chat-msg-content';
+      content.innerHTML = formatChatText(text);
+      div.appendChild(content);
+      chatMessages.appendChild(div);
+      scrollToBottom();
+    }
+
+    function formatChatText(text) {
+      // Basic markdown-like formatting
+      var s = text
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\n/g, '<br>');
+      return s;
+    }
+
+    function buildContext() {
+      var sym = selectedSymbol;
+      if (!sym || !cache[sym]) return 'No stock is currently selected.';
+      var c = cache[sym];
+      var parts = [];
+      parts.push('=== CURRENTLY VIEWING: ' + sym + ' ===');
+
+      // Quote
+      if (c.quote) {
+        var q = c.quote;
+        parts.push('PRICE: $' + (q.c || 'N/A') + ' | Change: ' + (q.dp != null ? q.dp.toFixed(2) + '%' : 'N/A'));
+        parts.push('Open: $' + (q.o || '') + ' | High: $' + (q.h || '') + ' | Low: $' + (q.l || '') + ' | Prev Close: $' + (q.pc || ''));
+      }
+
+      // Profile
+      if (c.profile) {
+        var p = c.profile;
+        parts.push('COMPANY: ' + (p.name || sym) + ' | Sector: ' + (p.finnhubIndustry || 'N/A') + ' | Market Cap: $' + fmtBigNum(p.marketCapitalization * 1e6));
+        if (p.ipo) parts.push('IPO: ' + p.ipo);
+      }
+
+      // Financials / KPIs
+      if (c.financials && c.financials.metric) {
+        var m = c.financials.metric;
+        var kpis = [];
+        if (m.peBasicExclExtraTTM != null) kpis.push('P/E: ' + m.peBasicExclExtraTTM.toFixed(2));
+        if (m.epsBasicExclExtraItemsTTM != null) kpis.push('EPS: $' + m.epsBasicExclExtraItemsTTM.toFixed(2));
+        if (m.beta != null) kpis.push('Beta: ' + m.beta.toFixed(2));
+        if (m.dividendYieldIndicatedAnnual != null) kpis.push('Div Yield: ' + m.dividendYieldIndicatedAnnual.toFixed(2) + '%');
+        if (m['52WeekHigh'] != null) kpis.push('52W High: $' + m['52WeekHigh']);
+        if (m['52WeekLow'] != null) kpis.push('52W Low: $' + m['52WeekLow']);
+        if (kpis.length) parts.push('KPIs: ' + kpis.join(' | '));
+      }
+
+      // AI News result
+      if (c.aiResult) {
+        parts.push('AI NEWS ANALYSIS: Outlook=' + (c.aiResult.outlook || 'N/A') + ' | Summary: ' + (c.aiResult.summary || ''));
+      }
+
+      // Analyst AI
+      if (c.analystAIResult) {
+        parts.push('ANALYST RATINGS AI: Consensus=' + (c.analystAIResult.consensus || 'N/A') + ' | Summary: ' + (c.analystAIResult.summary || ''));
+      }
+
+      // Macro AI
+      if (c.macroAIResult) {
+        parts.push('MACRO IMPACT AI: Impact=' + (c.macroAIResult.impact || 'N/A') + ' | Summary: ' + (c.macroAIResult.summary || ''));
+      }
+
+      // Technicals AI
+      if (c.technicalsResult) {
+        parts.push('TECHNICALS AI: Signal=' + (c.technicalsResult.signal || 'N/A') + ' | Summary: ' + (c.technicalsResult.summary || ''));
+        if (c.technicalsResult.support) parts.push('Support: ' + c.technicalsResult.support + ' | Resistance: ' + c.technicalsResult.resistance);
+      }
+
+      // Fundamentals AI
+      if (c.fundamentalsResult) {
+        var fr = c.fundamentalsResult;
+        parts.push('FUNDAMENTALS AI: Overall=' + (fr.overallAssessment || 'N/A'));
+        if (fr.summary) parts.push('Fundamentals Summary: ' + fr.summary);
+      }
+
+      // Verdict
+      if (c.verdictResult) {
+        var v = c.verdictResult;
+        parts.push('SENIOR ANALYST VERDICT: Rating=' + (v.rating || 'N/A') + ' | Target=$' + (v.targetPrice || 'N/A') + ' | Upside=' + (v.upsidePercent || 'N/A') + '%');
+        if (v.thesis) parts.push('Thesis: ' + v.thesis);
+        if (v.risks && v.risks.length) parts.push('Risks: ' + v.risks.join('; '));
+        if (v.catalysts && v.catalysts.length) parts.push('Catalysts: ' + v.catalysts.join('; '));
+      }
+
+      // Earnings
+      if (c.earnings && c.earnings.length) {
+        var latest = c.earnings[0];
+        parts.push('LATEST EARNINGS: Period=' + (latest.period || '') + ' | Actual EPS=$' + (latest.actual || 'N/A') + ' | Estimate=$' + (latest.estimate || 'N/A') + ' | Surprise=' + (latest.surprise || 'N/A'));
+      }
+
+      // Transcript AI
+      if (c.transcriptResult) {
+        parts.push('EARNINGS CALL AI: Tone=' + (c.transcriptResult.tone || 'N/A') + ' | Summary: ' + (c.transcriptResult.summary || ''));
+      }
+
+      // Revenue / Income
+      if (c.incomeData && c.incomeData.length) {
+        var latest = c.incomeData[0];
+        parts.push('LATEST QUARTERLY INCOME: Revenue=$' + fmtBigNum(latest.revenue) + ' | Net Income=$' + fmtBigNum(latest.netIncome) + ' | Gross Profit=$' + fmtBigNum(latest.grossProfit));
+      }
+
+      // Cash Flow
+      if (c.cashFlowData && c.cashFlowData.length) {
+        var cf = c.cashFlowData[0];
+        parts.push('LATEST CASH FLOW: Operating=$' + fmtBigNum(cf.operatingCashFlow) + ' | CapEx=$' + fmtBigNum(cf.capitalExpenditure) + ' | FCF=$' + fmtBigNum(cf.freeCashFlow));
+      }
+
+      // Balance Sheet
+      if (c.balanceSheetData && c.balanceSheetData.length) {
+        var bs = c.balanceSheetData[0];
+        parts.push('LATEST BALANCE SHEET: Assets=$' + fmtBigNum(bs.totalAssets) + ' | Liabilities=$' + fmtBigNum(bs.totalLiabilities) + ' | Equity=$' + fmtBigNum(bs.equity) + ' | Cash=$' + fmtBigNum(bs.cash) + ' | Debt=$' + fmtBigNum(bs.totalDebt));
+      }
+
+      // Insider
+      if (c.insider && c.insider.length) {
+        var buys = 0, sells = 0;
+        c.insider.forEach(function(t) { if (t.change === 'Purchase') buys++; else if (t.change === 'Sale') sells++; });
+        parts.push('INSIDER TRADING: ' + buys + ' buys, ' + sells + ' sells (recent transactions)');
+      }
+
+      // Recommendations
+      if (c.recommendations && c.recommendations.length) {
+        var r = c.recommendations[0];
+        parts.push('ANALYST CONSENSUS: Buy=' + (r.buy || 0) + ' | Hold=' + (r.hold || 0) + ' | Sell=' + (r.sell || 0) + ' | Strong Buy=' + (r.strongBuy || 0) + ' | Strong Sell=' + (r.strongSell || 0));
+      }
+
+      // Peers
+      if (c.peerData && c.peerData.length) {
+        parts.push('PEERS: ' + c.peerData.map(function(p) { return p.symbol; }).join(', '));
+      }
+
+      // AV Overview
+      if (c.avOverview) {
+        var ov = c.avOverview;
+        if (ov.Description) parts.push('DESCRIPTION: ' + ov.Description.substring(0, 300));
+        if (ov.PERatio) parts.push('AV P/E: ' + ov.PERatio + ' | PEG: ' + (ov.PEGRatio || 'N/A') + ' | P/B: ' + (ov.PriceToBookRatio || 'N/A'));
+      }
+
+      // All tracked stocks
+      if (trackedStocks && trackedStocks.length > 1) {
+        var others = trackedStocks.filter(function(s) { return s.symbol !== sym; });
+        if (others.length) {
+          var watchlist = others.map(function(s) {
+            var oc = cache[s.symbol];
+            if (oc && oc.quote) return s.symbol + ': $' + oc.quote.c + ' (' + (oc.quote.dp != null ? oc.quote.dp.toFixed(2) + '%' : 'N/A') + ')';
+            return s.symbol;
+          });
+          parts.push('OTHER WATCHLIST STOCKS: ' + watchlist.join(' | '));
+        }
+      }
+
+      return parts.join('\n');
+    }
+
+    function fmtBigNum(n) {
+      if (n == null || isNaN(n)) return 'N/A';
+      n = Number(n);
+      if (Math.abs(n) >= 1e12) return (n / 1e12).toFixed(2) + 'T';
+      if (Math.abs(n) >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+      if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+      if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+      return n.toFixed(2);
+    }
+
+    var SYSTEM_PROMPT = 'You are an elite wealth advisor and senior equity analyst with 25+ years of experience at top-tier investment banks. You have FULL ACCESS to all the stock data loaded on the user\'s dashboard (provided below as context).\n\n'
+      + 'YOUR APPROACH:\n'
+      + '1. THINK DEEPLY before responding — consider multiple angles, risks, and opportunities\n'
+      + '2. ASK CLARIFYING QUESTIONS when the user\'s intent is ambiguous (e.g., time horizon, risk tolerance, portfolio size)\n'
+      + '3. REFERENCE THE DATA — always cite specific numbers from the dashboard context when making points\n'
+      + '4. BE ACTIONABLE — give specific recommendations, not vague advice\n'
+      + '5. CONSIDER RISKS — always mention downside risks and what could go wrong\n'
+      + '6. USE STRUCTURED RESPONSES — use bullet points, sections, and clear formatting\n\n'
+      + 'PERSONALITY: Confident but not arrogant. Direct but thoughtful. You explain complex concepts simply. You push back when the user has a bad idea.\n\n'
+      + 'IMPORTANT: You can ONLY analyze data that is loaded on the dashboard. If data is missing (e.g., no AI verdict yet), mention that the user should load it first. Do NOT make up data.\n\n'
+      + 'Format responses with **bold** for emphasis and `code` for numbers/tickers. Use line breaks for readability.';
+
+    chatForm.addEventListener('submit', async function(e) {
+      e.preventDefault();
+      var text = chatInput.value.trim();
+      if (!text || isBusy) return;
+      if (!NewsAI.hasKey()) {
+        appendMsg('assistant', 'Please add your Groq API key in Settings first.');
+        return;
+      }
+
+      isBusy = true;
+      chatSend.disabled = true;
+      chatInput.value = '';
+      appendMsg('user', text);
+
+      // Build context fresh each message
+      var context = buildContext();
+
+      // Add user message to conversation
+      conversation.push({ role: 'user', content: text });
+
+      // Build messages array for API
+      var apiMessages = [];
+      apiMessages.push({ role: 'system', content: SYSTEM_PROMPT + '\n\n--- DASHBOARD DATA ---\n' + context + '\n--- END DATA ---' });
+
+      // Include conversation history (keep last 20 messages to stay within token limits)
+      var historySlice = conversation.slice(-20);
+      for (var i = 0; i < historySlice.length; i++) {
+        apiMessages.push({ role: historySlice[i].role, content: historySlice[i].content });
+      }
+
+      chatThinking.classList.remove('hidden');
+      scrollToBottom();
+
+      try {
+        var response = await NewsAI.chatAdvisor(apiMessages, { timeoutMs: 60000, maxTokens: 2048 });
+        conversation.push({ role: 'assistant', content: response });
+        chatThinking.classList.add('hidden');
+        appendMsg('assistant', response);
+      } catch (err) {
+        chatThinking.classList.add('hidden');
+        appendMsg('assistant', 'Error: ' + err.message);
+      }
+
+      isBusy = false;
+      chatSend.disabled = false;
+      chatInput.focus();
+    });
+  })();
+
   init();
 })();
