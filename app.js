@@ -3555,7 +3555,6 @@
       try {
         await runAIAnalysis(symbol);
       } catch (e) { console.warn('Auto AI news error:', e.message); }
-      await delay(3000);
     }
     // Analyst AI
     if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
@@ -3564,7 +3563,6 @@
       try {
         await runAnalystAnalysis(symbol);
       } catch (e) { console.warn('Auto AI analyst error:', e.message); }
-      await delay(3000);
     }
     // Macro AI
     if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
@@ -3573,7 +3571,6 @@
       try {
         await runMacroAnalysis(symbol);
       } catch (e) { console.warn('Auto AI macro error:', e.message); }
-      await delay(3000);
     }
     // Transcript / Earnings Call AI
     if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
@@ -3585,7 +3582,6 @@
         try {
           await runTranscriptSummary(symbol);
         } catch (e) { console.warn('Auto AI transcript error:', e.message); }
-        await delay(3000);
       }
     }
     // Technicals AI (loads RSI, MACD, SMA from AV then runs AI analysis)
@@ -3595,7 +3591,6 @@
       try {
         await loadTechnicalsData(symbol);
       } catch (e) { console.warn('Auto technicals error:', e.message); }
-      await delay(3000);
     }
     // Fundamentals & Sentiment AI (loads AV overview + sentiment then runs AI)
     if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
@@ -3604,7 +3599,6 @@
       try {
         await loadFundamentalsData(symbol);
       } catch (e) { console.warn('Auto fundamentals error:', e.message); }
-      await delay(3000);
     }
 
     // Revenue & Income (AV call)
@@ -3970,7 +3964,6 @@
         if (AlphaAPI.hasKey()) {
           if (!c.rsiData || !c.rsiData.length) {
             try { await loadTechnicalsData(sym); } catch(e) {}
-            await delay(2000);
             c = cache[sym];
           }
           if (!c.cashFlowData || !c.cashFlowData.length) {
@@ -4006,35 +3999,27 @@
       try {
         if (c.articles && c.articles.length && !c.aiResult) {
           await runAIAnalysis(sym);
-          await delay(4000);
           c = cache[sym];
         }
         if (((c.recommendations && c.recommendations.length) || (c.upgrades && c.upgrades.length)) && !c.analystAIResult) {
           await runAnalystAnalysis(sym);
-          await delay(4000);
           c = cache[sym];
         }
         if (c.macroArticles && c.macroArticles.length && !c.macroAIResult) {
           await runMacroAnalysis(sym);
-          await delay(4000);
           c = cache[sym];
         }
         if (!c.transcriptAIResult) {
           try { await runTranscriptSummary(sym); } catch(e) {}
-          await delay(4000);
           c = cache[sym];
         }
         if (!c.fundamentalsResult && AlphaAPI.hasKey()) {
           try { await loadFundamentalsData(sym); } catch(e) {}
-          await delay(4000);
           c = cache[sym];
         }
       } catch (e) {
         console.warn('Morning report AI error for ' + sym + ':', e.message);
       }
-
-      // Buffer delay before senior analyst (heaviest AI call, uses 70B model)
-      await delay(5000);
 
       // 3. Run Senior Analyst verdict
       morningReportProgress.innerHTML = '<div>\uD83C\uDFAF ' + step + ' — ' + sym + ': Senior Analyst deep analysis\u2026</div><div class="mrp-bar" style="width:' + Math.round(((i + 0.7) / total) * 100) + '%"></div>';
@@ -4079,7 +4064,7 @@
       }
 
       // Delay between stocks for rate limits
-      if (i < total - 1) await delay(5000);
+      if (i < total - 1) await delay(2000);
     }
 
     // 4. Build email

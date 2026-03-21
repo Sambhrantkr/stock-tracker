@@ -12,8 +12,51 @@ const NewsAI = (() => {
   function setKey(key) { if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('groq_api_key', key.trim()); else localStorage.setItem('groq_api_key', key.trim()); }
   function hasKey() { return getKey().length > 0; }
 
+  // ── Centralized rate-limit queue ──
+  // Ensures only one Groq API call runs at a time with a minimum gap between calls.
+  // Groq free tier: 30 req/min for llama-3.1-8b, 30 req/min for llama-3.3-70b
+  var _groqQueue = [];
+  var _groqRunning = false;
+  var _groqLastCallTime = 0;
+  var GROQ_MIN_GAP_MS = 2500; // minimum 2.5s between calls
+
+  function _groqEnqueue(fn) {
+    return new Promise(function(resolve, reject) {
+      _groqQueue.push({ fn: fn, resolve: resolve, reject: reject });
+      _groqProcessQueue();
+    });
+  }
+
+  async function _groqProcessQueue() {
+    if (_groqRunning || !_groqQueue.length) return;
+    _groqRunning = true;
+    while (_groqQueue.length) {
+      var item = _groqQueue.shift();
+      // Enforce minimum gap between calls
+      var elapsed = Date.now() - _groqLastCallTime;
+      if (elapsed < GROQ_MIN_GAP_MS) {
+        await new Promise(function(r) { setTimeout(r, GROQ_MIN_GAP_MS - elapsed); });
+      }
+      try {
+        var result = await item.fn();
+        _groqLastCallTime = Date.now();
+        item.resolve(result);
+      } catch (e) {
+        _groqLastCallTime = Date.now();
+        item.reject(e);
+      }
+    }
+    _groqRunning = false;
+  }
+
   /** Groq fetch with auto-retry on 429 rate limit. opts: { model, timeoutMs } */
   async function groqFetch(messages, maxTokens, temperature, opts) {
+    return _groqEnqueue(function() {
+      return _groqFetchDirect(messages, maxTokens, temperature, opts);
+    });
+  }
+
+  async function _groqFetchDirect(messages, maxTokens, temperature, opts) {
     var useModel = (opts && opts.model) || MODEL;
     var useTimeout = (opts && opts.timeoutMs) || 30000;
     var retries = 5;
@@ -920,6 +963,12 @@ const NewsAI = (() => {
    * Returns plain text string (not parsed JSON).
    */
   async function chatAdvisor(messages, opts) {
+    return _groqEnqueue(function() {
+      return _chatAdvisorDirect(messages, opts);
+    });
+  }
+
+  async function _chatAdvisorDirect(messages, opts) {
     var useModel = (opts && opts.model) || MODEL_DEEP;
     var useTimeout = (opts && opts.timeoutMs) || 60000;
     var maxTokens = (opts && opts.maxTokens) || 2048;
