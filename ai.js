@@ -876,8 +876,8 @@ const NewsAI = (() => {
     var useModel = (opts && opts.model) || MODEL_DEEP;
     var useTimeout = (opts && opts.timeoutMs) || 60000;
     var maxTokens = (opts && opts.maxTokens) || 2048;
-    var retries = 3;
-    var waitMs = 5000;
+    var retries = 4;
+    var waitMs = 8000;
     for (var attempt = 0; attempt < retries; attempt++) {
       var res;
       try {

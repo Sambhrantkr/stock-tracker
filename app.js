@@ -3960,6 +3960,7 @@
         if (AlphaAPI.hasKey()) {
           if (!c.rsiData || !c.rsiData.length) {
             try { await loadTechnicalsData(sym); } catch(e) {}
+            await delay(2000);
             c = cache[sym];
           }
           if (!c.cashFlowData || !c.cashFlowData.length) {
@@ -4022,35 +4023,51 @@
         console.warn('Morning report AI error for ' + sym + ':', e.message);
       }
 
+      // Buffer delay before senior analyst (heaviest AI call, uses 70B model)
+      await delay(4000);
+
       // 3. Run Senior Analyst verdict
       morningReportProgress.innerHTML = '<div>\uD83C\uDFAF ' + step + ' — ' + sym + ': Senior Analyst deep analysis\u2026</div><div class="mrp-bar" style="width:' + Math.round(((i + 0.7) / total) * 100) + '%"></div>';
 
-      try {
-        var verdict = await NewsAI.generateVerdict(
-          sym,
-          c.profile ? c.profile.name : sym,
-          c
-        );
-        if (c.quote) {
-          verdict.currentPrice = c.quote.price;
-          if (verdict.priceTarget) {
-            verdict.upside = ((verdict.priceTarget - c.quote.price) / c.quote.price * 100).toFixed(1);
+      var verdictAttempts = 0;
+      var verdictDone = false;
+      while (verdictAttempts < 2 && !verdictDone) {
+        verdictAttempts++;
+        try {
+          var verdict = await NewsAI.generateVerdict(
+            sym,
+            c.profile ? c.profile.name : sym,
+            c
+          );
+          if (c.quote) {
+            verdict.currentPrice = c.quote.price;
+            if (verdict.priceTarget) {
+              verdict.upside = ((verdict.priceTarget - c.quote.price) / c.quote.price * 100).toFixed(1);
+            }
+          }
+          verdict._symbol = sym;
+          verdict._name = (c.profile && c.profile.name) ? c.profile.name : sym;
+          verdict._price = c.quote ? c.quote.price : null;
+          verdict._change = c.quote ? c.quote.changePct : null;
+          results.push(verdict);
+          // Also cache it
+          c.verdictResult = verdict;
+          if (selectedSymbol === sym) renderDetail(sym);
+          verdictDone = true;
+        } catch (e) {
+          if (verdictAttempts < 2 && e.message && e.message.indexOf('rate') !== -1) {
+            morningReportProgress.innerHTML = '<div>\u23F3 ' + step + ' — ' + sym + ': Rate limited, waiting 35s before retry\u2026</div><div class="mrp-bar" style="width:' + Math.round(((i + 0.5) / total) * 100) + '%"></div>';
+            await delay(35000);
+            c = cache[sym];
+          } else {
+            failed.push(sym + ' (' + e.message + ')');
+            verdictDone = true;
           }
         }
-        verdict._symbol = sym;
-        verdict._name = (c.profile && c.profile.name) ? c.profile.name : sym;
-        verdict._price = c.quote ? c.quote.price : null;
-        verdict._change = c.quote ? c.quote.changePct : null;
-        results.push(verdict);
-        // Also cache it
-        c.verdictResult = verdict;
-        if (selectedSymbol === sym) renderDetail(sym);
-      } catch (e) {
-        failed.push(sym + ' (' + e.message + ')');
       }
 
       // Delay between stocks for rate limits
-      if (i < total - 1) await delay(4000);
+      if (i < total - 1) await delay(5000);
     }
 
     // 4. Build email
@@ -4600,8 +4617,24 @@
         chatThinking.classList.add('hidden');
         appendMsg('assistant', response);
       } catch (err) {
-        chatThinking.classList.add('hidden');
-        appendMsg('assistant', 'Error: ' + err.message);
+        // Auto-retry once on rate limit after 35s
+        if (err.message && err.message.indexOf('Rate') !== -1) {
+          chatThinking.innerHTML = '<span>\u23F3 Rate limited — retrying in 35s\u2026</span>';
+          await new Promise(function(r) { setTimeout(r, 35000); });
+          chatThinking.innerHTML = '<span>Thinking\u2026</span>';
+          try {
+            var retryResp = await NewsAI.chatAdvisor(apiMessages, { timeoutMs: 60000, maxTokens: 2048 });
+            conversation.push({ role: 'assistant', content: retryResp });
+            chatThinking.classList.add('hidden');
+            appendMsg('assistant', retryResp);
+          } catch (retryErr) {
+            chatThinking.classList.add('hidden');
+            appendMsg('assistant', 'Error: ' + retryErr.message);
+          }
+        } else {
+          chatThinking.classList.add('hidden');
+          appendMsg('assistant', 'Error: ' + err.message);
+        }
       }
 
       isBusy = false;
