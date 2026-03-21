@@ -3508,8 +3508,10 @@
       delete nc.transcriptCachedPeriod;
       delete nc.avTranscript;
     }
-    // Always invalidate verdict on refresh so user regenerates with latest data
-    delete nc.verdictResult;
+    // Invalidate verdict on refresh — but preserve if morning report just generated it
+    if (!morningReportRunning) {
+      delete nc.verdictResult;
+    }
 
     if (selectedSymbol === symbol) renderDetail(symbol);
 
@@ -3536,8 +3538,10 @@
   }
 
   var activeAutoRunSymbol = null;
+  var morningReportRunning = false;
 
   async function autoRunAI(symbol) {
+    if (morningReportRunning) return; // Skip during morning report — it manages AI calls itself
     activeAutoRunSymbol = symbol;
     var c = cache[symbol];
     if (!c) return;
@@ -3925,6 +3929,8 @@
     morningReportBtn.disabled = true;
     morningReportBtn.textContent = 'Generating\u2026';
     morningReportProgress.classList.remove('hidden');
+    stopAutoRefresh(); // Pause auto-refresh so it doesn't wipe verdicts mid-run
+    morningReportRunning = true; // Suppress autoRunAI triggered by loadStockData
     var total = trackedStocks.length;
     var results = [];
     var failed = [];
@@ -4084,8 +4090,10 @@
     } catch (e) {
       showError('Morning Report error: ' + e.message);
     } finally {
+      morningReportRunning = false;
       morningReportBtn.disabled = false;
       morningReportBtn.textContent = '\uD83D\uDCE7 Morning Report';
+      startAutoRefresh(); // Resume auto-refresh after morning report completes
     }
 
     // Auto-hide progress after 10s
