@@ -397,30 +397,28 @@ const NewsAI = (() => {
     // ── SECTION 6: CASH FLOW & BALANCE SHEET ──
     b += '┌─ SECTION 6: CASH FLOW & BALANCE SHEET ────────────────────────┐\n';
     if (allData.cashFlowData && allData.cashFlowData.length) {
-      b += '  CASH FLOW (annual):\n';
+      b += '  CASH FLOW (quarterly):\n';
       allData.cashFlowData.forEach(function(cf) {
-        var yr = (cf.fiscalDateEnding || '').substring(0, 4);
-        var opCF = cf.operatingCashflow ? '$' + (parseFloat(cf.operatingCashflow) / 1e9).toFixed(2) + 'B' : 'N/A';
-        var capex = cf.capitalExpenditures ? '$' + (parseFloat(cf.capitalExpenditures) / 1e9).toFixed(2) + 'B' : 'N/A';
-        var fcfVal = (cf.operatingCashflow && cf.capitalExpenditures) ? parseFloat(cf.operatingCashflow) - parseFloat(cf.capitalExpenditures) : null;
-        var fcf = fcfVal ? '$' + (fcfVal / 1e9).toFixed(2) + 'B' : 'N/A';
-        var divPaid = cf.dividendPayout ? '$' + (parseFloat(cf.dividendPayout) / 1e9).toFixed(2) + 'B' : 'N/A';
-        var buyback = cf.commonStockRepurchased ? '$' + (Math.abs(parseFloat(cf.commonStockRepurchased)) / 1e9).toFixed(2) + 'B' : 'N/A';
-        b += '    ' + yr + ': OpCF=' + opCF + ' | CapEx=' + capex + ' | FCF=' + fcf + ' | Div=' + divPaid + ' | Buyback=' + buyback + '\n';
+        var yr = (cf.date || '').substring(0, 7);
+        var opCF = cf.operatingCashFlow != null ? '$' + (cf.operatingCashFlow / 1e9).toFixed(2) + 'B' : 'N/A';
+        var capex = cf.capitalExpenditure != null ? '$' + (cf.capitalExpenditure / 1e9).toFixed(2) + 'B' : 'N/A';
+        var fcf = cf.freeCashFlow != null ? '$' + (cf.freeCashFlow / 1e9).toFixed(2) + 'B' : 'N/A';
+        var divPaid = cf.dividendPayout != null ? '$' + (cf.dividendPayout / 1e9).toFixed(2) + 'B' : 'N/A';
+        var ni = cf.netIncome != null ? '$' + (cf.netIncome / 1e9).toFixed(2) + 'B' : 'N/A';
+        b += '    ' + yr + ': OpCF=' + opCF + ' | CapEx=' + capex + ' | FCF=' + fcf + ' | Div=' + divPaid + ' | NetInc=' + ni + '\n';
       });
     } else { b += '  [NO CASH FLOW DATA — DCF not possible]\n'; }
     b += '\n';
     if (allData.balanceSheetData && allData.balanceSheetData.length) {
-      b += '  BALANCE SHEET (annual):\n';
+      b += '  BALANCE SHEET (quarterly):\n';
       allData.balanceSheetData.forEach(function(bs) {
-        var yr = (bs.fiscalDateEnding || '').substring(0, 4);
-        var assets = bs.totalAssets ? '$' + (parseFloat(bs.totalAssets) / 1e9).toFixed(2) + 'B' : 'N/A';
-        var liab = bs.totalLiabilities ? '$' + (parseFloat(bs.totalLiabilities) / 1e9).toFixed(2) + 'B' : 'N/A';
-        var equity = bs.totalShareholderEquity ? '$' + (parseFloat(bs.totalShareholderEquity) / 1e9).toFixed(2) + 'B' : 'N/A';
-        var cash = bs.cashAndCashEquivalentsAtCarryingValue ? '$' + (parseFloat(bs.cashAndCashEquivalentsAtCarryingValue) / 1e9).toFixed(2) + 'B' : 'N/A';
-        var ltDebt = bs.longTermDebt ? '$' + (parseFloat(bs.longTermDebt) / 1e9).toFixed(2) + 'B' : 'N/A';
-        var stDebt = bs.shortTermDebt ? '$' + (parseFloat(bs.shortTermDebt) / 1e9).toFixed(2) + 'B' : 'N/A';
-        b += '    ' + yr + ': Assets=' + assets + ' | Liab=' + liab + ' | Equity=' + equity + ' | Cash=' + cash + ' | LTDebt=' + ltDebt + ' | STDebt=' + stDebt + '\n';
+        var yr = (bs.date || '').substring(0, 7);
+        var assets = bs.totalAssets != null ? '$' + (bs.totalAssets / 1e9).toFixed(2) + 'B' : 'N/A';
+        var liab = bs.totalLiabilities != null ? '$' + (bs.totalLiabilities / 1e9).toFixed(2) + 'B' : 'N/A';
+        var bv = bs.bookValue != null ? '$' + (bs.bookValue / 1e9).toFixed(2) + 'B' : 'N/A';
+        var cashVal = bs.cash != null ? '$' + (bs.cash / 1e9).toFixed(2) + 'B' : 'N/A';
+        var debt = bs.totalDebt != null ? '$' + (bs.totalDebt / 1e9).toFixed(2) + 'B' : 'N/A';
+        b += '    ' + yr + ': Assets=' + assets + ' | Liab=' + liab + ' | BookVal=' + bv + ' | Cash=' + cashVal + ' | Debt=' + debt + '\n';
       });
     } else { b += '  [NO BALANCE SHEET DATA]\n'; }
     b += '└──────────────────────────────────────────────────────────────┘\n\n';
@@ -429,11 +427,11 @@ const NewsAI = (() => {
     if (allData.incomeData && allData.incomeData.length) {
       b += '┌─ SECTION 6B: REVENUE & INCOME TRENDS ────────────────────────┐\n';
       allData.incomeData.forEach(function(inc) {
-        var yr = (inc.fiscalDateEnding || '').substring(0, 7);
-        var rev = inc.totalRevenue ? '$' + (parseFloat(inc.totalRevenue) / 1e9).toFixed(2) + 'B' : 'N/A';
-        var ni = inc.netIncome ? '$' + (parseFloat(inc.netIncome) / 1e9).toFixed(2) + 'B' : 'N/A';
-        var gp = inc.grossProfit ? '$' + (parseFloat(inc.grossProfit) / 1e9).toFixed(2) + 'B' : 'N/A';
-        var oi = inc.operatingIncome ? '$' + (parseFloat(inc.operatingIncome) / 1e9).toFixed(2) + 'B' : 'N/A';
+        var yr = (inc.date || '').substring(0, 7);
+        var rev = inc.revenue != null ? '$' + (inc.revenue / 1e9).toFixed(2) + 'B' : 'N/A';
+        var ni = inc.netIncome != null ? '$' + (inc.netIncome / 1e9).toFixed(2) + 'B' : 'N/A';
+        var gp = inc.grossProfit != null ? '$' + (inc.grossProfit / 1e9).toFixed(2) + 'B' : 'N/A';
+        var oi = inc.operatingIncome != null ? '$' + (inc.operatingIncome / 1e9).toFixed(2) + 'B' : 'N/A';
         b += '    ' + yr + ': Rev=' + rev + ' | GP=' + gp + ' | OpInc=' + oi + ' | NetInc=' + ni + '\n';
       });
       b += '└──────────────────────────────────────────────────────────────┘\n\n';

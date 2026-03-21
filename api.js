@@ -334,17 +334,19 @@ const StockAPI = (() => {
   // Multiple CORS proxies — tries each in order until one works
   const PROXIES = [
     function(url) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url); },
-    function(url) { return 'https://api.cors.lol/?url=' + encodeURIComponent(url); },
     function(url) { return 'https://corsproxy.io/?' + encodeURIComponent(url); },
+    function(url) { return 'https://api.cors.lol/?url=' + encodeURIComponent(url); },
+    function(url) { return 'https://proxy.corsfix.com/?' + url; },
   ];
 
-  async function fetchViaProxy(targetUrl) {
+  async function fetchViaProxy(targetUrl, opts) {
+    var timeoutMs = (opts && opts.timeout) || 15000;
     var lastErr = null;
     for (var i = 0; i < PROXIES.length; i++) {
       try {
         var proxyUrl = PROXIES[i](targetUrl);
         var controller = new AbortController();
-        var timeoutId = setTimeout(function() { controller.abort(); }, 15000);
+        var timeoutId = setTimeout(function() { controller.abort(); }, timeoutMs);
         var res = await fetch(proxyUrl, { signal: controller.signal });
         clearTimeout(timeoutId);
         if (res.ok) {
@@ -363,12 +365,30 @@ const StockAPI = (() => {
             continue;
           }
         }
-        lastErr = new Error('Proxy HTTP ' + res.status);
+        lastErr = new Error('Proxy HTTP ' + res.status + ' from ' + proxyUrl.split('/')[2]);
       } catch (e) {
         if (e.name === 'AbortError') lastErr = new Error('Proxy request timed out');
         else lastErr = e;
       }
+      // Small delay before trying next proxy to avoid rapid-fire blocks
+      if (i < PROXIES.length - 1) await new Promise(function(r) { setTimeout(r, 500); });
     }
+
+    // Last resort: try allorigins JSON wrapper (wraps response in {contents: "..."})
+    try {
+      var aoUrl = 'https://api.allorigins.win/get?url=' + encodeURIComponent(targetUrl);
+      var controller2 = new AbortController();
+      var tid2 = setTimeout(function() { controller2.abort(); }, timeoutMs);
+      var aoRes = await fetch(aoUrl, { signal: controller2.signal });
+      clearTimeout(tid2);
+      if (aoRes.ok) {
+        var aoJson = await aoRes.json();
+        if (aoJson && aoJson.contents) {
+          return new Response(aoJson.contents, { status: 200, statusText: 'OK' });
+        }
+      }
+    } catch (e) { /* last resort failed */ }
+
     throw lastErr || new Error('All CORS proxies failed. Try again later.');
   }
 
@@ -519,7 +539,8 @@ const StockAPI = (() => {
           var tid = setTimeout(function() { controller.abort(); }, 20000);
           var directRes = await fetch(tickerUrl, {
             signal: controller.signal,
-            headers: { 'Accept': 'application/json', 'User-Agent': 'StockTracker dashboard@github.io' }
+            mode: 'cors',
+            headers: { 'Accept': 'application/json' }
           });
           clearTimeout(tid);
           if (directRes.ok) {
@@ -531,7 +552,7 @@ const StockAPI = (() => {
         }
 
         if (!data) {
-          var res = await fetchViaProxy(tickerUrl);
+          var res = await fetchViaProxy(tickerUrl, { timeout: 25000 });
           var proxyText = await res.text();
           data = JSON.parse(proxyText);
         }
@@ -580,26 +601,29 @@ const StockAPI = (() => {
         var tid = setTimeout(function() { controller.abort(); }, 25000);
         var res = await fetch(subUrl, {
           signal: controller.signal,
-          headers: { 'Accept': 'application/json', 'User-Agent': 'StockTracker dashboard@github.io' }
+          mode: 'cors',
+          headers: { 'Accept': 'application/json' }
         });
         clearTimeout(tid);
         if (res.ok) {
           var text = await res.text();
           data = JSON.parse(text);
+        } else {
+          console.warn('SEC direct fetch HTTP ' + res.status + ' for ' + symbol);
         }
       } catch (directErr) {
-        // Direct fetch failed — try proxy as fallback
+        // Direct fetch failed (CORS block from file:// or network error) — try proxy
         console.warn('SEC direct fetch failed, trying proxy:', directErr.message);
       }
 
       // Proxy fallback (may truncate large responses)
       if (!data) {
         try {
-          var proxyRes = await fetchViaProxy(subUrl);
+          var proxyRes = await fetchViaProxy(subUrl, { timeout: 30000 });
           var proxyText = await proxyRes.text();
           data = JSON.parse(proxyText);
         } catch (proxyErr) {
-          throw new Error('SEC filings unavailable for ' + symbol + '. Response too large or network error. Try again later.');
+          throw new Error('SEC filings unavailable for ' + symbol + ': ' + proxyErr.message);
         }
       }
 

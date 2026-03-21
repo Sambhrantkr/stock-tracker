@@ -216,6 +216,7 @@ var AlphaAPI = (function() {
       });
     } catch (e) {
       console.warn('AV income statement error:', e.message);
+      if (e.message && (e.message.indexOf('rate limit') !== -1 || e.message.indexOf('daily limit') !== -1)) throw e;
       return [];
     }
   }
@@ -292,7 +293,11 @@ var AlphaAPI = (function() {
           netIncome: r.netIncome && r.netIncome !== 'None' ? parseFloat(r.netIncome) : null,
         };
       });
-    } catch (e) { console.warn('AV Cash Flow error:', e.message); return []; }
+    } catch (e) {
+      console.warn('AV Cash Flow error:', e.message);
+      if (e.message && (e.message.indexOf('rate limit') !== -1 || e.message.indexOf('daily limit') !== -1)) throw e;
+      return [];
+    }
   }
 
   /** Balance Sheet — quarterly, returns [{date, totalAssets, totalLiabilities, totalDebt, cash, bookValue, sharesOutstanding}] */
@@ -315,7 +320,11 @@ var AlphaAPI = (function() {
           sharesOutstanding: r.commonStockSharesOutstanding && r.commonStockSharesOutstanding !== 'None' ? parseFloat(r.commonStockSharesOutstanding) : null,
         };
       });
-    } catch (e) { console.warn('AV Balance Sheet error:', e.message); return []; }
+    } catch (e) {
+      console.warn('AV Balance Sheet error:', e.message);
+      if (e.message && (e.message.indexOf('rate limit') !== -1 || e.message.indexOf('daily limit') !== -1)) throw e;
+      return [];
+    }
   }
 
   return {

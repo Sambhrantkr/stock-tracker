@@ -338,7 +338,7 @@
     var multiCol = [];  // 2 cols (span 2)
     var singleCol = []; // 1 col (span 1)
     var FULL_TILES = ['tile-verdict','tile-chart','tile-fundamentals','tile-news','tile-peers','tile-correlation','tile-etf-holdings'];
-    var MULTI_TILES = ['tile-about-company','tile-earnings','tile-technicals','tile-cashflow','tile-balancesheet','tile-fair-value'];
+    var MULTI_TILES = ['tile-about-company','tile-earnings','tile-technicals','tile-cashflow','tile-balancesheet','tile-fair-value','tile-revenue'];
 
     orderedIds.forEach(function(id) {
       if (hidden.indexOf(id) !== -1) return; // skip hidden
@@ -1674,23 +1674,64 @@
   function renderRevenueChart(el, data) {
     if (!data || !data.length) { el.innerHTML = '<div class="tile-loading">No income data available.</div>'; return; }
     var sorted = data.slice().reverse().filter(function(d) { return d.revenue != null; });
-    if (sorted.length < 2) { el.innerHTML = '<div class="tile-loading">Insufficient data.</div>'; return; }
+    if (!sorted.length) { el.innerHTML = '<div class="tile-loading">No revenue data in response.</div>'; return; }
 
-    el.innerHTML = '<div class="revenue-chart-container"><canvas id="revenue-income-chart"></canvas></div>';
+    // Build KPI summary from latest quarter
+    var latest = sorted[sorted.length - 1] || {};
+    var prev = sorted.length > 4 ? sorted[sorted.length - 5] : (sorted.length > 1 ? sorted[sorted.length - 2] : null);
+    var h = '<div class="cashflow-kpis">';
+    if (latest.revenue != null) h += cfKpi('Revenue', latest.revenue);
+    if (latest.grossProfit != null) h += cfKpi('Gross Profit', latest.grossProfit);
+    if (latest.operatingIncome != null) h += cfKpi('Operating Income', latest.operatingIncome);
+    if (latest.netIncome != null) h += cfKpi('Net Income', latest.netIncome);
+    if (latest.revenue && latest.grossProfit) {
+      var gm = (latest.grossProfit / latest.revenue * 100).toFixed(1);
+      h += '<div class="cashflow-kpi"><div class="label">Gross Margin</div><div class="value">' + gm + '%</div></div>';
+    }
+    if (latest.revenue && latest.netIncome) {
+      var nm = (latest.netIncome / latest.revenue * 100).toFixed(1);
+      h += '<div class="cashflow-kpi"><div class="label">Net Margin</div><div class="value ' + (parseFloat(nm) >= 0 ? 'positive' : 'negative') + '">' + nm + '%</div></div>';
+    }
+    if (prev && prev.revenue && latest.revenue) {
+      var yoy = ((latest.revenue - prev.revenue) / Math.abs(prev.revenue) * 100).toFixed(1);
+      h += '<div class="cashflow-kpi"><div class="label">Rev Growth (YoY)</div><div class="value ' + (parseFloat(yoy) >= 0 ? 'positive' : 'negative') + '">' + (parseFloat(yoy) >= 0 ? '+' : '') + yoy + '%</div></div>';
+    }
+    h += '</div>';
+
+    h += '<div class="revenue-chart-container"><canvas id="revenue-income-chart"></canvas></div>';
+
+    // Trend table
+    h += '<table style="width:100%;border-collapse:collapse;font-size:0.68rem;"><thead><tr>';
+    h += '<th style="text-align:left;padding:0.3rem;border-bottom:1px solid var(--border);color:var(--muted);">Period</th>';
+    h += '<th style="text-align:right;padding:0.3rem;border-bottom:1px solid var(--border);color:var(--muted);">Revenue</th>';
+    h += '<th style="text-align:right;padding:0.3rem;border-bottom:1px solid var(--border);color:var(--muted);">Gross Profit</th>';
+    h += '<th style="text-align:right;padding:0.3rem;border-bottom:1px solid var(--border);color:var(--muted);">Net Income</th>';
+    h += '<th style="text-align:right;padding:0.3rem;border-bottom:1px solid var(--border);color:var(--muted);">Net Margin</th>';
+    h += '</tr></thead><tbody>';
+    sorted.slice().reverse().slice(0, 8).forEach(function(r) {
+      var margin = (r.revenue && r.netIncome) ? (r.netIncome / r.revenue * 100).toFixed(1) + '%' : 'N/A';
+      h += '<tr><td style="padding:0.25rem 0.3rem;border-bottom:1px solid var(--border);">' + r.date + '</td>';
+      h += '<td style="text-align:right;padding:0.25rem 0.3rem;border-bottom:1px solid var(--border);">' + fmtCF(r.revenue) + '</td>';
+      h += '<td style="text-align:right;padding:0.25rem 0.3rem;border-bottom:1px solid var(--border);">' + fmtCF(r.grossProfit) + '</td>';
+      h += '<td style="text-align:right;padding:0.25rem 0.3rem;border-bottom:1px solid var(--border);">' + fmtCF(r.netIncome) + '</td>';
+      h += '<td style="text-align:right;padding:0.25rem 0.3rem;border-bottom:1px solid var(--border);">' + margin + '</td></tr>';
+    });
+    h += '</tbody></table>';
+    el.innerHTML = h;
+
+    // Draw chart
     var canvas = document.getElementById('revenue-income-chart');
     if (!canvas) return;
     if (revenueChart) revenueChart.destroy();
 
     var labels = sorted.map(function(d) {
       var dt = new Date(d.date);
-      if (d.isAnnual) {
-        return 'FY ' + dt.getFullYear();
-      }
+      if (d.isAnnual) return 'FY ' + dt.getFullYear();
       var q = Math.ceil((dt.getMonth() + 1) / 3);
       return 'Q' + q + ' ' + dt.getFullYear();
     });
-    var revenues = sorted.map(function(d) { return d.revenue ? d.revenue / 1e9 : null; });
-    var netIncomes = sorted.map(function(d) { return d.netIncome ? d.netIncome / 1e9 : null; });
+    var revenues = sorted.map(function(d) { return d.revenue != null ? d.revenue / 1e9 : null; });
+    var netIncomes = sorted.map(function(d) { return d.netIncome != null ? d.netIncome / 1e9 : null; });
     var barColors = netIncomes.map(function(v) { return v != null && v >= 0 ? 'rgba(34,197,94,0.7)' : 'rgba(239,68,68,0.7)'; });
 
     revenueChart = new Chart(canvas, {
