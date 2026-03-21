@@ -800,16 +800,17 @@
   }
 
   async function runVerdict(symbol) {
+    var isSelected = (selectedSymbol === symbol);
     var contentEl = document.getElementById('detail-verdict-content');
     var btn = document.getElementById('detail-verdict-btn');
     var c = cache[symbol];
-    if (!NewsAI.hasKey() || !c) return;
-    btn.disabled = true; btn.textContent = 'Preparing\u2026';
+    if (!NewsAI.hasKey() || !c) return null;
+    if (isSelected) { btn.disabled = true; btn.textContent = 'Preparing\u2026'; }
     var step = 0;
     var totalSteps = 14;
     function progress(msg) {
       step++;
-      contentEl.innerHTML = '<div class="tile-loading">' + msg + '<br><span style="font-size:0.6rem;color:var(--muted);">Step ' + step + '/' + totalSteps + '</span></div>';
+      if (isSelected) contentEl.innerHTML = '<div class="tile-loading">' + msg + '<br><span style="font-size:0.6rem;color:var(--muted);">Step ' + step + '/' + totalSteps + '</span></div>';
     }
 
     // Check data freshness — refresh if older than 10 minutes
@@ -821,14 +822,14 @@
       try {
         await loadStockData(symbol, s.type || 'Equity');
       } catch (e) {
-        showWarning('Data refresh had issues: ' + e.message + '. Proceeding with available data.');
+        if (isSelected) showWarning('Data refresh had issues: ' + e.message + '. Proceeding with available data.');
       }
       c = cache[symbol];
-      if (!c) return;
+      if (!c) return null;
     }
 
     // ── PHASE 1: Load all on-demand data tiles ──
-    btn.textContent = 'Loading data\u2026';
+    if (isSelected) btn.textContent = 'Loading data\u2026';
 
     // Technicals (RSI, MACD, SMA + AI)
     if (AlphaAPI.hasKey() && (!c.rsiData || !c.rsiData.length)) {
@@ -873,13 +874,12 @@
     }
 
     // ── PHASE 2: Run all pending AI analyses ──
-    btn.textContent = 'Running AI tiles\u2026';
+    if (isSelected) btn.textContent = 'Running AI tiles\u2026';
 
     // News AI
     if (c.articles && c.articles.length && !c.aiResult && NewsAI.hasKey()) {
       progress('\uD83E\uDD16 AI analyzing news...');
       try { await runAIAnalysis(symbol); } catch(e) { console.warn('AI News:', e.message); }
-      await delay(3000);
       c = cache[symbol];
     }
 
@@ -887,7 +887,6 @@
     if (((c.recommendations && c.recommendations.length) || (c.upgrades && c.upgrades.length)) && !c.analystAIResult && NewsAI.hasKey()) {
       progress('\uD83E\uDD16 AI analyzing analyst ratings...');
       try { await runAnalystAnalysis(symbol); } catch(e) { console.warn('AI Analyst:', e.message); }
-      await delay(3000);
       c = cache[symbol];
     }
 
@@ -895,7 +894,6 @@
     if (c.macroArticles && c.macroArticles.length && !c.macroAIResult && NewsAI.hasKey()) {
       progress('\uD83E\uDD16 AI analyzing macro impact...');
       try { await runMacroAnalysis(symbol); } catch(e) { console.warn('AI Macro:', e.message); }
-      await delay(3000);
       c = cache[symbol];
     }
 
@@ -903,7 +901,6 @@
     if (!c.transcriptAIResult && NewsAI.hasKey()) {
       progress('\uD83E\uDD16 AI analyzing earnings call...');
       try { await runTranscriptSummary(symbol); } catch(e) { console.warn('Transcript AI:', e.message); }
-      await delay(3000);
       c = cache[symbol];
     }
 
@@ -911,23 +908,26 @@
     if (!c.fundamentalsResult && NewsAI.hasKey()) {
       progress('\uD83E\uDD16 AI analyzing fundamentals...');
       try { await loadFundamentalsData(symbol); } catch(e) { console.warn('Fundamentals AI:', e.message); }
-      await delay(3000);
       c = cache[symbol];
     }
 
     // ── PHASE 3: Senior Analyst deep analysis ──
-    btn.textContent = 'Deep analysis\u2026';
+    if (isSelected) btn.textContent = 'Deep analysis\u2026';
     var inventory = buildDataInventory(c);
-    contentEl.innerHTML = '<div class="tile-loading">\uD83C\uDFAF Senior analyst performing deep analysis on ' + symbol + '...<br><span style="font-size:0.65rem;color:var(--muted);">Using 70B model \u2022 ' + inventory.summary + '</span></div>';
+    if (isSelected) contentEl.innerHTML = '<div class="tile-loading">\uD83C\uDFAF Senior analyst performing deep analysis on ' + symbol + '...<br><span style="font-size:0.65rem;color:var(--muted);">Using 70B model \u2022 ' + inventory.summary + '</span></div>';
     try {
       c.verdictResult = await NewsAI.generateVerdict(
         symbol,
         c.profile ? c.profile.name : symbol,
         c
       );
-      renderVerdictHTML(contentEl, c.verdictResult);
-    } catch (err) { contentEl.innerHTML = '<div class="error-msg">' + err.message + '</div>'; }
-    finally { btn.textContent = 'Regenerate'; btn.disabled = false; }
+      if (isSelected) renderVerdictHTML(contentEl, c.verdictResult);
+      return c.verdictResult;
+    } catch (err) {
+      if (isSelected) contentEl.innerHTML = '<div class="error-msg">' + err.message + '</div>';
+      throw err;
+    }
+    finally { if (isSelected) { btn.textContent = 'Regenerate'; btn.disabled = false; } }
   }
 
   function renderVerdictHTML(el, v) {
@@ -3939,16 +3939,17 @@
       var s = trackedStocks[i];
       var sym = s.symbol;
       var step = (i + 1) + '/' + total;
-
-      // Update progress
       var pct = Math.round((i / total) * 100);
-      morningReportProgress.innerHTML = '<div>\uD83D\uDCCA ' + step + ' — ' + sym + ': Refreshing data\u2026</div><div class="mrp-bar" style="width:' + pct + '%"></div>';
 
-      // 1. Refresh stock data
-      try {
-        await loadStockData(sym, s.type || 'Equity');
-      } catch (e) {
-        console.warn('Morning report data refresh error for ' + sym + ':', e.message);
+      morningReportProgress.innerHTML = '<div>\uD83C\uDFAF ' + step + ' — ' + sym + ': Running Senior Analyst\u2026</div><div class="mrp-bar" style="width:' + pct + '%"></div>';
+
+      // Ensure basic data is loaded
+      if (!cache[sym] || !cache[sym].quote) {
+        try {
+          await loadStockData(sym, s.type || 'Equity');
+        } catch (e) {
+          console.warn('Morning report data error for ' + sym + ':', e.message);
+        }
       }
 
       var c = cache[sym];
@@ -3957,83 +3958,10 @@
         continue;
       }
 
-      // 2a. Load on-demand data tiles (technicals, cash flow, balance sheet, etc.)
-      morningReportProgress.innerHTML = '<div>\uD83D\uDCC0 ' + step + ' — ' + sym + ': Loading detailed financials\u2026</div><div class="mrp-bar" style="width:' + pct + '%"></div>';
-
+      // Run the full Senior Analyst pipeline (data refresh + AI tiles + verdict)
       try {
-        if (AlphaAPI.hasKey()) {
-          if (!c.rsiData || !c.rsiData.length) {
-            try { await loadTechnicalsData(sym); } catch(e) {}
-            c = cache[sym];
-          }
-          if (!c.cashFlowData || !c.cashFlowData.length) {
-            try { await loadCashFlowData(sym); } catch(e) {}
-            c = cache[sym];
-          }
-          if (!c.balanceSheetData || !c.balanceSheetData.length) {
-            try { await loadBalanceSheetData(sym); } catch(e) {}
-            c = cache[sym];
-          }
-          if (!c.incomeData || !c.incomeData.length) {
-            try { await loadRevenueData(sym); } catch(e) {}
-            c = cache[sym];
-          }
-        }
-        if (StockAPI.hasKey()) {
-          if (!c.epsEstimates || !c.epsEstimates.quarterly || !c.epsEstimates.quarterly.length) {
-            try { await loadEPSEstimates(sym); } catch(e) {}
-            c = cache[sym];
-          }
-          if (!c.peers || !c.peers.length) {
-            try { await loadPeerData(sym); } catch(e) {}
-            c = cache[sym];
-          }
-        }
-      } catch (e) {
-        console.warn('Morning report data loading error for ' + sym + ':', e.message);
-      }
-
-      // 2b. Run AI sub-analyses if missing (sequential with delays)
-      morningReportProgress.innerHTML = '<div>\uD83E\uDD16 ' + step + ' — ' + sym + ': Running AI analyses\u2026</div><div class="mrp-bar" style="width:' + pct + '%"></div>';
-
-      try {
-        if (c.articles && c.articles.length && !c.aiResult) {
-          await runAIAnalysis(sym);
-          c = cache[sym];
-        }
-        if (((c.recommendations && c.recommendations.length) || (c.upgrades && c.upgrades.length)) && !c.analystAIResult) {
-          await runAnalystAnalysis(sym);
-          c = cache[sym];
-        }
-        if (c.macroArticles && c.macroArticles.length && !c.macroAIResult) {
-          await runMacroAnalysis(sym);
-          c = cache[sym];
-        }
-        if (!c.transcriptAIResult) {
-          try { await runTranscriptSummary(sym); } catch(e) {}
-          c = cache[sym];
-        }
-        if (!c.fundamentalsResult && AlphaAPI.hasKey()) {
-          try { await loadFundamentalsData(sym); } catch(e) {}
-          c = cache[sym];
-        }
-      } catch (e) {
-        console.warn('Morning report AI error for ' + sym + ':', e.message);
-      }
-
-      // 3. Run Senior Analyst verdict
-      morningReportProgress.innerHTML = '<div>\uD83C\uDFAF ' + step + ' — ' + sym + ': Senior Analyst deep analysis\u2026</div><div class="mrp-bar" style="width:' + Math.round(((i + 0.7) / total) * 100) + '%"></div>';
-
-      var verdictAttempts = 0;
-      var verdictDone = false;
-      while (verdictAttempts < 3 && !verdictDone) {
-        verdictAttempts++;
-        try {
-          var verdict = await NewsAI.generateVerdict(
-            sym,
-            c.profile ? c.profile.name : sym,
-            c
-          );
+        var verdict = await runVerdict(sym);
+        if (verdict) {
           if (c.quote) {
             verdict.currentPrice = c.quote.price;
             if (verdict.priceTarget) {
@@ -4045,37 +3973,27 @@
           verdict._price = c.quote ? c.quote.price : null;
           verdict._change = c.quote ? c.quote.changePct : null;
           results.push(verdict);
-          // Also cache it
-          c.verdictResult = verdict;
+          // Update the detail view if this stock is currently selected
           if (selectedSymbol === sym) renderDetail(sym);
-          verdictDone = true;
-        } catch (e) {
-          if (verdictAttempts < 3 && e.message && e.message.toLowerCase().indexOf('rate') !== -1) {
-            morningReportProgress.innerHTML = '<div>\u23F3 ' + step + ' — ' + sym + ': Rate limited, waiting 35s before retry\u2026</div><div class="mrp-bar" style="width:' + Math.round(((i + 0.5) / total) * 100) + '%"></div>';
-            await delay(35000);
-            c = cache[sym];
-          } else {
-            failed.push(sym + ' (' + e.message + ')');
-            console.warn('Morning report verdict failed for ' + sym + ':', e.message);
-            morningReportProgress.innerHTML = '<div>\u26A0\uFE0F ' + step + ' — ' + sym + ': Verdict failed — ' + e.message + '</div><div class="mrp-bar" style="width:' + Math.round(((i + 0.8) / total) * 100) + '%"></div>';
-            verdictDone = true;
-          }
+        } else {
+          failed.push(sym + ' (no verdict returned)');
         }
+      } catch (e) {
+        failed.push(sym + ' (' + e.message + ')');
+        console.warn('Morning report verdict failed for ' + sym + ':', e.message);
+        morningReportProgress.innerHTML = '<div>\u26A0\uFE0F ' + step + ' — ' + sym + ': Failed — ' + e.message + '</div><div class="mrp-bar" style="width:' + pct + '%"></div>';
+        await delay(2000);
       }
-
-      // Delay between stocks for rate limits
-      if (i < total - 1) await delay(2000);
     }
 
-    // 4. Build email
+    // Build email
     morningReportProgress.innerHTML = '<div>\u2709\uFE0F Building email report\u2026</div><div class="mrp-bar" style="width:95%"></div>';
 
     var emailHTML = buildMorningReportEmail(results, failed);
 
-    // 5. Open mailto or copy to clipboard
+    // Open mailto or copy to clipboard
     morningReportProgress.innerHTML = '<div>\u2705 Report ready for ' + results.length + ' stocks' + (failed.length ? ' (' + failed.length + ' failed)' : '') + '</div><div class="mrp-bar" style="width:100%"></div>';
 
-    // Try mailto first, also offer copy
     openMorningReportEmail(emailHTML, results);
 
     } catch (e) {
