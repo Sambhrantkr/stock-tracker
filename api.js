@@ -61,7 +61,22 @@ const StockAPI = (() => {
     try {
       data = await res.json();
     } catch (e) {
-      throw new Error('Invalid response from Finnhub (not JSON).');
+      // Content-Length mismatch or truncated body — retry once
+      if ((e.message || '').indexOf('Content-Length') !== -1 || (e.message || '').indexOf('unexpected end') !== -1) {
+        trackFHCall();
+        try {
+          var controller3 = new AbortController();
+          var timeoutId3 = setTimeout(function() { controller3.abort(); }, 15000);
+          res = await fetch(url, { signal: controller3.signal });
+          clearTimeout(timeoutId3);
+          if (res.ok) data = await res.json();
+          else throw new Error('Finnhub HTTP ' + res.status + ' on retry');
+        } catch (e2) {
+          throw new Error('Finnhub returned truncated response. Try again.');
+        }
+      } else {
+        throw new Error('Invalid response from Finnhub (not JSON).');
+      }
     }
     return data;
   }
@@ -332,7 +347,22 @@ const StockAPI = (() => {
         var timeoutId = setTimeout(function() { controller.abort(); }, 15000);
         var res = await fetch(proxyUrl, { signal: controller.signal });
         clearTimeout(timeoutId);
-        if (res.ok) return res;
+        if (res.ok) {
+          // Clone and verify body is readable before returning
+          // This catches "Content-Length exceeds response Body" errors early
+          try {
+            var text = await res.text();
+            return new Response(text, {
+              status: res.status,
+              statusText: res.statusText,
+              headers: res.headers,
+            });
+          } catch (bodyErr) {
+            // Truncated response — try next proxy
+            lastErr = new Error('Proxy returned truncated response: ' + (bodyErr.message || ''));
+            continue;
+          }
+        }
         lastErr = new Error('Proxy HTTP ' + res.status);
       } catch (e) {
         if (e.name === 'AbortError') lastErr = new Error('Proxy request timed out');
@@ -480,10 +510,33 @@ const StockAPI = (() => {
     if (_cikMapPromise) return _cikMapPromise;
     _cikMapPromise = (async function() {
       try {
-        var res = await fetchViaProxy('https://www.sec.gov/files/company_tickers.json');
-        var data = await res.json();
+        var tickerUrl = 'https://www.sec.gov/files/company_tickers.json';
+        var data = null;
+
+        // Try direct fetch first — sec.gov has CORS
+        try {
+          var controller = new AbortController();
+          var tid = setTimeout(function() { controller.abort(); }, 20000);
+          var directRes = await fetch(tickerUrl, {
+            signal: controller.signal,
+            headers: { 'Accept': 'application/json', 'User-Agent': 'StockTracker dashboard@github.io' }
+          });
+          clearTimeout(tid);
+          if (directRes.ok) {
+            var text = await directRes.text();
+            data = JSON.parse(text);
+          }
+        } catch (e) {
+          // Direct failed — try proxy
+        }
+
+        if (!data) {
+          var res = await fetchViaProxy(tickerUrl);
+          var proxyText = await res.text();
+          data = JSON.parse(proxyText);
+        }
+
         var map = {};
-        // data is { "0": {cik_str, ticker, title}, "1": {...}, ... }
         var keys = Object.keys(data);
         for (var i = 0; i < keys.length; i++) {
           var entry = data[keys[i]];
@@ -494,7 +547,6 @@ const StockAPI = (() => {
         _cikMap = map;
         return map;
       } catch (e) {
-        // Reset so next call retries instead of returning stale rejected promise
         _cikMapPromise = null;
         throw e;
       }
@@ -502,7 +554,7 @@ const StockAPI = (() => {
     return _cikMapPromise;
   }
 
-  /** SEC EDGAR filings via data.sec.gov submissions API
+  /** SEC EDGAR filings via data.sec.gov submissions API (direct fetch — SEC has CORS)
    *  Returns [{date, type, title, url, accessionNo}] */
   async function getSECFilings(symbol) {
     status('SEC filings ' + symbol + '\u2026');
@@ -517,11 +569,39 @@ const StockAPI = (() => {
       var paddedCIK = cik;
       while (paddedCIK.length < 10) paddedCIK = '0' + paddedCIK;
 
-      // Step 2: Fetch submissions from data.sec.gov via proxy
+      // Step 2: Fetch submissions directly from data.sec.gov (has CORS, no proxy needed)
       status('Fetching SEC filings for ' + symbol + '\u2026');
       var subUrl = 'https://data.sec.gov/submissions/CIK' + paddedCIK + '.json';
-      var res = await fetchViaProxy(subUrl);
-      var data = await res.json();
+      var data = null;
+
+      // Direct fetch — data.sec.gov sets Access-Control-Allow-Origin: *
+      try {
+        var controller = new AbortController();
+        var tid = setTimeout(function() { controller.abort(); }, 25000);
+        var res = await fetch(subUrl, {
+          signal: controller.signal,
+          headers: { 'Accept': 'application/json', 'User-Agent': 'StockTracker dashboard@github.io' }
+        });
+        clearTimeout(tid);
+        if (res.ok) {
+          var text = await res.text();
+          data = JSON.parse(text);
+        }
+      } catch (directErr) {
+        // Direct fetch failed — try proxy as fallback
+        console.warn('SEC direct fetch failed, trying proxy:', directErr.message);
+      }
+
+      // Proxy fallback (may truncate large responses)
+      if (!data) {
+        try {
+          var proxyRes = await fetchViaProxy(subUrl);
+          var proxyText = await proxyRes.text();
+          data = JSON.parse(proxyText);
+        } catch (proxyErr) {
+          throw new Error('SEC filings unavailable for ' + symbol + '. Response too large or network error. Try again later.');
+        }
+      }
 
       if (!data || !data.filings || !data.filings.recent) {
         throw new Error('No filing data returned for ' + symbol);

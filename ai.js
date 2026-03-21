@@ -623,7 +623,8 @@ const NewsAI = (() => {
     if (allData.secFilings && allData.secFilings.length) dataAvail.push('SEC Filings'); else dataMissing.push('SEC Filings');
     if (allData.cashFlowData && allData.cashFlowData.length) dataAvail.push('Cash Flow Statement'); else dataMissing.push('Cash Flow Statement');
     if (allData.balanceSheetData && allData.balanceSheetData.length) dataAvail.push('Balance Sheet'); else dataMissing.push('Balance Sheet');
-    if (allData.epsEstimates && allData.epsEstimates.quarterly && allData.epsEstimates.quarterly.length) dataAvail.push('EPS Estimates');
+    if (allData.incomeData && allData.incomeData.length) dataAvail.push('Revenue & Income'); else dataMissing.push('Revenue & Income');
+    if (allData.epsEstimates && allData.epsEstimates.quarterly && allData.epsEstimates.quarterly.length) dataAvail.push('EPS Estimates'); else dataMissing.push('EPS Estimates');
     if (allData.rsiData && allData.rsiData.length) dataAvail.push('RSI/MACD/SMA');
 
     b += '┌─ SECTION 15: DATA COMPLETENESS AUDIT ─────────────────────────┐\n';

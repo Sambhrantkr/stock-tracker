@@ -755,6 +755,7 @@
     if (c.cashFlowData && c.cashFlowData.length) available.push('Cash Flow');
     if (c.balanceSheetData && c.balanceSheetData.length) available.push('Balance Sheet');
     if (c.epsEstimates && c.epsEstimates.quarterly && c.epsEstimates.quarterly.length) available.push('EPS Estimates');
+    if (c.incomeData && c.incomeData.length) available.push('Revenue & Income');
 
     // AI analyses
     if (c.aiResult) available.push('AI News'); else if (c.articles && c.articles.length) stale.push('AI News');
@@ -777,12 +778,18 @@
     var c = cache[symbol];
     if (!NewsAI.hasKey() || !c) return;
     btn.disabled = true; btn.textContent = 'Preparing\u2026';
+    var step = 0;
+    var totalSteps = 14;
+    function progress(msg) {
+      step++;
+      contentEl.innerHTML = '<div class="tile-loading">' + msg + '<br><span style="font-size:0.6rem;color:var(--muted);">Step ' + step + '/' + totalSteps + '</span></div>';
+    }
 
     // Check data freshness — refresh if older than 10 minutes
     var staleMs = 10 * 60 * 1000;
     var dataAge = c._dataLoadedAt ? (Date.now() - c._dataLoadedAt) : Infinity;
     if (dataAge > staleMs) {
-      contentEl.innerHTML = '<div class="tile-loading">\uD83D\uDD04 Data is ' + (dataAge === Infinity ? 'not loaded' : Math.round(dataAge / 60000) + ' min old') + '. Refreshing all data first...</div>';
+      progress('\uD83D\uDD04 Data is ' + (dataAge === Infinity ? 'not loaded' : Math.round(dataAge / 60000) + ' min old') + '. Refreshing all data first...');
       var s = trackedStocks.find(function(t) { return t.symbol === symbol; }) || {};
       try {
         await loadStockData(symbol, s.type || 'Equity');
@@ -793,50 +800,102 @@
       if (!c) return;
     }
 
-    // Now run all pending AI analyses sequentially before verdict
-    btn.textContent = 'Running AI tiles\u2026';
-    contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 Running AI analyses to feed the senior analyst...</div>';
-    try {
-      // News AI
-      if (c.articles && c.articles.length && !c.aiResult && NewsAI.hasKey()) {
-        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 1/5 Analyzing news...</div>';
-        await runAIAnalysis(symbol);
-        await delay(3000);
-        c = cache[symbol];
-      }
-      // Analyst AI
-      if (((c.recommendations && c.recommendations.length) || (c.upgrades && c.upgrades.length)) && !c.analystAIResult && NewsAI.hasKey()) {
-        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 2/5 Analyzing analyst ratings...</div>';
-        await runAnalystAnalysis(symbol);
-        await delay(3000);
-        c = cache[symbol];
-      }
-      // Macro AI
-      if (c.macroArticles && c.macroArticles.length && !c.macroAIResult && NewsAI.hasKey()) {
-        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 3/5 Analyzing macro impact...</div>';
-        await runMacroAnalysis(symbol);
-        await delay(3000);
-        c = cache[symbol];
-      }
-      // Transcript AI
-      if (!c.transcriptAIResult && NewsAI.hasKey()) {
-        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 4/5 Analyzing earnings call...</div>';
-        try { await runTranscriptSummary(symbol); } catch(e) { console.warn('Transcript AI:', e.message); }
-        await delay(3000);
-        c = cache[symbol];
-      }
-      // Fundamentals AI
-      if (!c.fundamentalsResult && NewsAI.hasKey() && AlphaAPI.hasKey()) {
-        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 5/5 Analyzing fundamentals...</div>';
-        try { await loadFundamentalsData(symbol); } catch(e) { console.warn('Fundamentals AI:', e.message); }
-        await delay(3000);
-        c = cache[symbol];
-      }
-    } catch (e) {
-      console.warn('Pre-verdict AI error:', e.message);
+    // ── PHASE 1: Load all on-demand data tiles ──
+    btn.textContent = 'Loading data\u2026';
+
+    // Technicals (RSI, MACD, SMA + AI)
+    if (AlphaAPI.hasKey() && (!c.rsiData || !c.rsiData.length)) {
+      progress('\uD83D\uDCC0 Loading technical indicators (RSI, MACD, SMA)...');
+      try { await loadTechnicalsData(symbol); } catch(e) { console.warn('Technicals:', e.message); }
+      c = cache[symbol];
     }
 
-    // Build data inventory for the analyst
+    // Cash flow
+    if (AlphaAPI.hasKey() && (!c.cashFlowData || !c.cashFlowData.length)) {
+      progress('\uD83D\uDCB5 Loading cash flow data...');
+      try { await loadCashFlowData(symbol); } catch(e) { console.warn('Cash flow:', e.message); }
+      c = cache[symbol];
+    }
+
+    // Balance sheet
+    if (AlphaAPI.hasKey() && (!c.balanceSheetData || !c.balanceSheetData.length)) {
+      progress('\uD83C\uDFE6 Loading balance sheet...');
+      try { await loadBalanceSheetData(symbol); } catch(e) { console.warn('Balance sheet:', e.message); }
+      c = cache[symbol];
+    }
+
+    // Revenue & income
+    if (AlphaAPI.hasKey() && (!c.incomeData || !c.incomeData.length)) {
+      progress('\uD83D\uDCB0 Loading revenue & income data...');
+      try { await loadRevenueData(symbol); } catch(e) { console.warn('Revenue:', e.message); }
+      c = cache[symbol];
+    }
+
+    // SEC filings
+    if (!c.secFilings || !c.secFilings.length) {
+      progress('\uD83D\uDCCB Loading SEC filings...');
+      try { await loadSECFilings(symbol); } catch(e) { console.warn('SEC filings:', e.message); }
+      c = cache[symbol];
+    }
+
+    // EPS estimates
+    if (StockAPI.hasKey() && (!c.epsEstimates || !c.epsEstimates.quarterly || !c.epsEstimates.quarterly.length)) {
+      progress('\uD83D\uDCC8 Loading EPS estimates...');
+      try { await loadEPSEstimates(symbol); } catch(e) { console.warn('EPS estimates:', e.message); }
+      c = cache[symbol];
+    }
+
+    // Peer comparison
+    if (StockAPI.hasKey() && (!c.peers || !c.peers.length)) {
+      progress('\uD83D\uDC65 Loading peer comparison...');
+      try { await loadPeerData(symbol); } catch(e) { console.warn('Peers:', e.message); }
+      c = cache[symbol];
+    }
+
+    // ── PHASE 2: Run all pending AI analyses ──
+    btn.textContent = 'Running AI tiles\u2026';
+
+    // News AI
+    if (c.articles && c.articles.length && !c.aiResult && NewsAI.hasKey()) {
+      progress('\uD83E\uDD16 AI analyzing news...');
+      try { await runAIAnalysis(symbol); } catch(e) { console.warn('AI News:', e.message); }
+      await delay(3000);
+      c = cache[symbol];
+    }
+
+    // Analyst AI
+    if (((c.recommendations && c.recommendations.length) || (c.upgrades && c.upgrades.length)) && !c.analystAIResult && NewsAI.hasKey()) {
+      progress('\uD83E\uDD16 AI analyzing analyst ratings...');
+      try { await runAnalystAnalysis(symbol); } catch(e) { console.warn('AI Analyst:', e.message); }
+      await delay(3000);
+      c = cache[symbol];
+    }
+
+    // Macro AI
+    if (c.macroArticles && c.macroArticles.length && !c.macroAIResult && NewsAI.hasKey()) {
+      progress('\uD83E\uDD16 AI analyzing macro impact...');
+      try { await runMacroAnalysis(symbol); } catch(e) { console.warn('AI Macro:', e.message); }
+      await delay(3000);
+      c = cache[symbol];
+    }
+
+    // Transcript AI
+    if (!c.transcriptAIResult && NewsAI.hasKey()) {
+      progress('\uD83E\uDD16 AI analyzing earnings call...');
+      try { await runTranscriptSummary(symbol); } catch(e) { console.warn('Transcript AI:', e.message); }
+      await delay(3000);
+      c = cache[symbol];
+    }
+
+    // Fundamentals AI
+    if (!c.fundamentalsResult && NewsAI.hasKey()) {
+      progress('\uD83E\uDD16 AI analyzing fundamentals...');
+      try { await loadFundamentalsData(symbol); } catch(e) { console.warn('Fundamentals AI:', e.message); }
+      await delay(3000);
+      c = cache[symbol];
+    }
+
+    // ── PHASE 3: Senior Analyst deep analysis ──
     btn.textContent = 'Deep analysis\u2026';
     var inventory = buildDataInventory(c);
     contentEl.innerHTML = '<div class="tile-loading">\uD83C\uDFAF Senior analyst performing deep analysis on ' + symbol + '...<br><span style="font-size:0.65rem;color:var(--muted);">Using 70B model \u2022 ' + inventory.summary + '</span></div>';

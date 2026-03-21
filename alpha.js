@@ -49,7 +49,10 @@ var AlphaAPI = (function() {
     return fetch(url, { signal: controller.signal }).then(function(res) {
       clearTimeout(timeoutId);
       if (!res.ok) throw new Error('Alpha Vantage HTTP ' + res.status);
-      return res.json();
+      return res.text().then(function(text) {
+        try { return JSON.parse(text); }
+        catch (e) { throw new Error('Alpha Vantage returned invalid/truncated response. Try again.'); }
+      });
     }).then(function(data) {
       if (data['Note']) throw new Error('Alpha Vantage rate limit (25/day). Try again tomorrow.');
       if (data['Error Message']) throw new Error('Alpha Vantage: ' + data['Error Message']);
