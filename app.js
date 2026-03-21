@@ -9,6 +9,7 @@
   var keyInput = document.getElementById('api-key-input');
   var groqKeyInput = document.getElementById('groq-key-input');
   var avKeyInput = document.getElementById('av-key-input');
+  var reportEmailInput = document.getElementById('report-email-input');
   var saveKeyBtn = document.getElementById('save-key-btn');
   var settingsBtn = document.getElementById('settings-btn');
 
@@ -79,13 +80,17 @@
   // --- API Keys ---
   saveKeyBtn.addEventListener('click', function() {
     var fk = keyInput.value.trim(), gk = groqKeyInput.value.trim(), ak = avKeyInput.value.trim();
+    var em = reportEmailInput ? reportEmailInput.value.trim() : '';
     if (fk && fk.indexOf('\u2022') !== 0) StockAPI.setKey(fk);
     if (gk && gk.indexOf('\u2022') !== 0) NewsAI.setKey(gk);
     if (ak && ak.indexOf('\u2022') !== 0) AlphaAPI.setKey(ak);
+    if (em) localStorage.setItem('report_email', em);
+    else if (em === '') localStorage.removeItem('report_email');
     if (StockAPI.hasKey()) banner.classList.add('hidden');
     keyInput.value = StockAPI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     groqKeyInput.value = NewsAI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     avKeyInput.value = AlphaAPI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
+    if (reportEmailInput) reportEmailInput.value = localStorage.getItem('report_email') || '';
     if (StockAPI.hasKey()) refreshAll();
   });
   if (settingsBtn) settingsBtn.addEventListener('click', function() {
@@ -93,6 +98,7 @@
     keyInput.value = StockAPI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     groqKeyInput.value = NewsAI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     avKeyInput.value = AlphaAPI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
+    if (reportEmailInput) reportEmailInput.value = localStorage.getItem('report_email') || '';
   });
   var aboutBtn = document.getElementById('about-btn');
   var aboutModal = document.getElementById('about-modal');
@@ -3655,11 +3661,38 @@
   function updateUserUI() {
     var user = Auth.getUser();
     var userArea = document.getElementById('sidebar-user');
-    if (!userArea || !user) return;
+    if (!userArea) return;
+    if (!user) {
+      // Not logged in — show Google Sign-In button (if client ID configured)
+      var btnContainer = document.getElementById('sidebar-google-btn');
+      if (btnContainer) {
+        var clientId = Auth.getClientId();
+        if (clientId) {
+          // Button rendered by _initSidebarGSI, just make sure container is visible
+          btnContainer.style.display = '';
+        } else {
+          btnContainer.innerHTML = '<button class="sidebar-config-gsi-btn" id="sidebar-config-gsi-btn" title="Configure Google Sign-In">🔐 Set up Google Sign-In</button>';
+          var cfgBtn = document.getElementById('sidebar-config-gsi-btn');
+          if (cfgBtn) {
+            cfgBtn.onclick = function() {
+              var id = prompt('Enter your Google OAuth Client ID:');
+              if (id && id.trim()) {
+                Auth.setClientId(id.trim());
+                location.reload();
+              }
+            };
+          }
+        }
+      }
+      return;
+    }
+    // Logged in — show user info + logout
+    var btnContainer = document.getElementById('sidebar-google-btn');
+    if (btnContainer) btnContainer.style.display = 'none';
     var pic = user.picture ? '<img src="' + user.picture + '" style="width:24px;height:24px;border-radius:50%;object-fit:cover;" referrerpolicy="no-referrer" alt="" />' : '<span style="font-size:1rem;">👤</span>';
     var nameStr = user.name || user.email || 'User';
-    if (nameStr.length > 18) nameStr = nameStr.slice(0, 16) + '…';
-    userArea.innerHTML = '<div class="user-info">' + pic + '<span class="user-name">' + nameStr + '</span></div><button class="user-logout-btn" id="logout-btn" title="Sign out">↪</button>';
+    if (nameStr.length > 18) nameStr = nameStr.slice(0, 16) + '\u2026';
+    userArea.innerHTML = '<div id="sidebar-google-btn" class="sidebar-google-btn" style="display:none;"></div><div class="user-info">' + pic + '<span class="user-name">' + nameStr + '</span></div><button class="user-logout-btn" id="logout-btn" title="Sign out">\u21AA</button>';
     var logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) {
       logoutBtn.onclick = function() {
@@ -3671,7 +3704,8 @@
         stockListEl.innerHTML = '';
         showEmpty();
         Auth.logout();
-        showLoginScreen();
+        // Reload to go back to anonymous mode
+        location.reload();
       };
     }
   }
@@ -3700,6 +3734,8 @@
     var total = trackedStocks.length;
     var results = [];
     var failed = [];
+
+    try {
 
     for (var i = 0; i < total; i++) {
       var s = trackedStocks[i];
@@ -3798,8 +3834,12 @@
     // Try mailto first, also offer copy
     openMorningReportEmail(emailHTML, results);
 
-    morningReportBtn.disabled = false;
-    morningReportBtn.textContent = '\uD83D\uDCE7 Morning Report';
+    } catch (e) {
+      showError('Morning Report error: ' + e.message);
+    } finally {
+      morningReportBtn.disabled = false;
+      morningReportBtn.textContent = '\uD83D\uDCE7 Morning Report';
+    }
 
     // Auto-hide progress after 10s
     setTimeout(function() {
@@ -3935,13 +3975,14 @@
     if (mailtoBody.length > 1800) {
       mailtoBody = mailtoBody.substring(0, 1800) + '\n\n[Report truncated — paste full version from clipboard]';
     }
-    var mailto = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(mailtoBody);
+    var mailto = 'mailto:' + encodeURIComponent(localStorage.getItem('report_email') || '') + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(mailtoBody);
     window.open(mailto, '_blank');
   }
 
-  /** Called after successful login — loads user data and starts the app */
+  /** Called on init and after Google login — loads user data and starts the app */
   function startApp() {
-    hideLoginScreen();
+    var appEl = document.getElementById('app');
+    if (appEl) appEl.classList.remove('hidden');
     loadTrackedStocks();
     loadPriceAlerts();
     updateUserUI();
@@ -4000,17 +4041,43 @@
     style.textContent = '@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}';
     document.head.appendChild(style);
 
-    // Wire up auth callbacks
+    // Wire up auth callbacks — re-run startApp on login to reload user-scoped data
     Auth.onLogin(function(user) {
+      // Reload with user-scoped data
+      stopAutoRefresh();
+      cache = {};
+      trackedStocks = [];
+      priceAlerts = [];
+      selectedSymbol = null;
+      stockListEl.innerHTML = '';
       startApp();
     });
 
-    // Try to restore session
-    if (Auth.restoreSession()) {
-      startApp();
-    } else {
-      showLoginScreen();
+    // Try to restore Google session (optional — works without it)
+    Auth.restoreSession();
+
+    // Always go straight to the app — login is optional
+    startApp();
+
+    // Try to init Google Sign-In in background (non-blocking)
+    _initSidebarGSI();
+  }
+
+  function _initSidebarGSI() {
+    var clientId = Auth.getClientId();
+    if (!clientId) return;
+    function tryInit(attempts) {
+      if (window.google && google.accounts && google.accounts.id) {
+        if (Auth.initGSI()) {
+          if (!Auth.isLoggedIn()) {
+            Auth.renderButton('sidebar-google-btn');
+          }
+        }
+      } else if (attempts > 0) {
+        setTimeout(function() { tryInit(attempts - 1); }, 300);
+      }
     }
+    tryInit(30);
   }
 
   init();

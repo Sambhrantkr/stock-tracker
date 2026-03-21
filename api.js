@@ -346,36 +346,42 @@ const StockAPI = (() => {
     range = range || '1y';
     var interval = RANGE_INTERVAL[range] || '1d';
     status('Chart ' + symbol + ' (' + range + ')\u2026');
-    var yUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/'
-      + encodeURIComponent(symbol)
-      + '?range=' + range + '&interval=' + interval + '&includePrePost=false';
-    var res = await fetchViaProxy(yUrl);
-    var json = await res.json();
-    status('');
-    // allorigins may wrap in {contents: "..."} — handle that
-    if (json.contents && typeof json.contents === 'string') {
-      json = JSON.parse(json.contents);
-    }
-    var result = json.chart && json.chart.result && json.chart.result[0];
-    if (!result || !result.timestamp) throw new Error('No chart data for ' + symbol);
-    var timestamps = result.timestamp;
-    var closes = result.indicators.quote[0].close;
-    var points = [];
-    for (var i = 0; i < timestamps.length; i++) {
-      if (closes[i] != null) {
-        var d = new Date(timestamps[i] * 1000);
-        var label;
-        if (range === '1d' || range === '5d') {
-          label = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        } else if (range === '1mo' || range === '3mo') {
-          label = (d.getMonth() + 1) + '/' + d.getDate();
-        } else {
-          label = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
-        }
-        points.push({ date: label, close: closes[i] });
+    try {
+      var yUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/'
+        + encodeURIComponent(symbol)
+        + '?range=' + range + '&interval=' + interval + '&includePrePost=false';
+      var res = await fetchViaProxy(yUrl);
+      var json = await res.json();
+      // allorigins may wrap in {contents: "..."} — handle that
+      if (json.contents && typeof json.contents === 'string') {
+        try { json = JSON.parse(json.contents); } catch(e) { throw new Error('Chart proxy returned invalid data for ' + symbol); }
       }
+      var result = json.chart && json.chart.result && json.chart.result[0];
+      if (!result || !result.timestamp) throw new Error('No chart data for ' + symbol);
+      if (!result.indicators || !result.indicators.quote || !result.indicators.quote[0]) throw new Error('No price data in chart response for ' + symbol);
+      var timestamps = result.timestamp;
+      var closes = result.indicators.quote[0].close;
+      var points = [];
+      for (var i = 0; i < timestamps.length; i++) {
+        if (closes[i] != null) {
+          var d = new Date(timestamps[i] * 1000);
+          var label;
+          if (range === '1d' || range === '5d') {
+            label = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          } else if (range === '1mo' || range === '3mo') {
+            label = (d.getMonth() + 1) + '/' + d.getDate();
+          } else {
+            label = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+          }
+          points.push({ date: label, close: closes[i] });
+        }
+      }
+      status('');
+      return points;
+    } catch (e) {
+      status('');
+      throw e;
     }
-    return points;
   }
 
   /** General / macro market news — returns [{title, url, publisher, date, summary}] */
@@ -465,68 +471,100 @@ const StockAPI = (() => {
     }
   }
 
-  /** SEC EDGAR filings — returns [{date, type, title, url, accessionNo}] */
+  /** Ticker-to-CIK cache (loaded once from SEC) */
+  var _cikMap = null;
+  var _cikMapPromise = null;
+
+  async function getCIKMap() {
+    if (_cikMap) return _cikMap;
+    if (_cikMapPromise) return _cikMapPromise;
+    _cikMapPromise = (async function() {
+      try {
+        var res = await fetchViaProxy('https://www.sec.gov/files/company_tickers.json');
+        var data = await res.json();
+        var map = {};
+        // data is { "0": {cik_str, ticker, title}, "1": {...}, ... }
+        var keys = Object.keys(data);
+        for (var i = 0; i < keys.length; i++) {
+          var entry = data[keys[i]];
+          if (entry && entry.ticker) {
+            map[entry.ticker.toUpperCase()] = String(entry.cik_str);
+          }
+        }
+        _cikMap = map;
+        return map;
+      } catch (e) {
+        // Reset so next call retries instead of returning stale rejected promise
+        _cikMapPromise = null;
+        throw e;
+      }
+    })();
+    return _cikMapPromise;
+  }
+
+  /** SEC EDGAR filings via data.sec.gov submissions API
+   *  Returns [{date, type, title, url, accessionNo}] */
   async function getSECFilings(symbol) {
     status('SEC filings ' + symbol + '\u2026');
     try {
+      // Step 1: Resolve ticker to CIK
+      status('Resolving CIK for ' + symbol + '\u2026');
+      var cikMap = await getCIKMap();
+      var cik = cikMap[symbol.toUpperCase()];
+      if (!cik) throw new Error('No CIK found for ' + symbol + '. Only US-listed stocks have SEC filings.');
+
+      // Pad CIK to 10 digits
+      var paddedCIK = cik;
+      while (paddedCIK.length < 10) paddedCIK = '0' + paddedCIK;
+
+      // Step 2: Fetch submissions from data.sec.gov via proxy
+      status('Fetching SEC filings for ' + symbol + '\u2026');
+      var subUrl = 'https://data.sec.gov/submissions/CIK' + paddedCIK + '.json';
+      var res = await fetchViaProxy(subUrl);
+      var data = await res.json();
+
+      if (!data || !data.filings || !data.filings.recent) {
+        throw new Error('No filing data returned for ' + symbol);
+      }
+
+      var recent = data.filings.recent;
+      var forms = recent.form || [];
+      var dates = recent.filingDate || [];
+      var accNums = recent.accessionNumber || [];
+      var primaryDocs = recent.primaryDocument || [];
+      var descriptions = recent.primaryDocDescription || [];
+
       var filings = [];
+      var wantedForms = { '10-K': true, '10-Q': true, '8-K': true, '10-K/A': true, '10-Q/A': true, '8-K/A': true };
 
-      // Primary: SEC EFTS full-text search API (CORS-friendly, JSON)
-      try {
-        var controller = new AbortController();
-        var timeoutId = setTimeout(function() { controller.abort(); }, 12000);
-        var res = await fetch('https://efts.sec.gov/LATEST/search-index?q=%22' + encodeURIComponent(symbol) + '%22&forms=10-K,10-Q,8-K', {
-          signal: controller.signal
+      for (var i = 0; i < forms.length && filings.length < 20; i++) {
+        if (!wantedForms[forms[i]]) continue;
+
+        var accNum = accNums[i] || '';
+        var accDashed = accNum.replace(/-/g, '');
+        var docUrl = '';
+        if (accNum && primaryDocs[i]) {
+          docUrl = 'https://www.sec.gov/Archives/edgar/data/' + cik + '/' + accDashed + '/' + primaryDocs[i];
+        } else if (accNum) {
+          docUrl = 'https://www.sec.gov/Archives/edgar/data/' + cik + '/' + accDashed + '/';
+        }
+
+        var desc = descriptions[i] || '';
+        var title = forms[i];
+        if (desc) title = forms[i] + ' \u2014 ' + desc;
+
+        filings.push({
+          date: dates[i] || '',
+          type: forms[i],
+          title: title,
+          url: docUrl,
+          accessionNo: accNum,
         });
-        clearTimeout(timeoutId);
-        if (res.ok) {
-          var data = await res.json();
-          var hits = (data.hits && data.hits.hits) ? data.hits.hits : [];
-          hits.forEach(function(hit) {
-            var src = hit._source || {};
-            var form = src.form_type || '';
-            if (form === '10-K' || form === '10-Q' || form === '8-K') {
-              filings.push({
-                date: src.file_date || '',
-                type: form,
-                title: form + (src.file_description ? ' \u2014 ' + src.file_description : ''),
-                url: src.file_num ? 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=' + encodeURIComponent(symbol) + '&type=' + form + '&dateb=&owner=include&count=5&search_text=&action=getcompany' : '',
-                accessionNo: src.adsh || '',
-              });
-            }
-          });
-        }
-      } catch(e) { /* EFTS failed, try fallback */ }
-
-      // Fallback: proxy-based EDGAR atom feed
-      if (!filings.length) {
-        var tickerUrl = 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=&CIK=' + encodeURIComponent(symbol) + '&type=10-K%2C10-Q%2C8-K&dateb=&owner=include&count=15&search_text=&action=getcompany&output=atom';
-        var proxyRes = await fetchViaProxy(tickerUrl);
-        var text = await proxyRes.text();
-        var parser = new DOMParser();
-        var doc = parser.parseFromString(text, 'text/xml');
-        if (!doc.querySelector('parsererror')) {
-          doc.querySelectorAll('entry').forEach(function(entry) {
-            var title = entry.querySelector('title') ? entry.querySelector('title').textContent : '';
-            var link = entry.querySelector('link');
-            var href = link ? link.getAttribute('href') : '';
-            var updated = entry.querySelector('updated') ? entry.querySelector('updated').textContent : '';
-            var typeMatch = title.match(/^(10-K|10-Q|8-K)/);
-            if (typeMatch) {
-              filings.push({
-                date: updated ? updated.slice(0, 10) : '',
-                type: typeMatch[1],
-                title: title,
-                url: href.indexOf('http') === 0 ? href : 'https://www.sec.gov' + href,
-              });
-            }
-          });
-        }
       }
 
       status('');
-      if (!filings.length) throw new Error('No SEC filings found for ' + symbol + '. Try a US-listed stock.');
-      return filings.slice(0, 15);
+      if (!filings.length) throw new Error('No 10-K/10-Q/8-K filings found for ' + symbol + '.');
+      return filings;
     } catch (e) {
       status('');
       throw e;

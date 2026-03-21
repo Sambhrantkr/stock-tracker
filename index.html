@@ -9,26 +9,7 @@
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
-  <!-- Login Screen -->
-  <div id="login-overlay" class="login-overlay">
-    <div class="login-card">
-      <div class="login-logo">📈</div>
-      <h1 class="login-title">Stock Tracker</h1>
-      <p class="login-subtitle">Sign in with Google to save your API keys and watchlist privately.</p>
-      <div id="google-signin-btn" class="login-google-btn"></div>
-      <div id="login-config-section" class="login-config hidden">
-        <p class="login-config-label">First-time setup: Enter your Google OAuth Client ID</p>
-        <input type="text" id="login-client-id-input" class="login-config-input" placeholder="Paste Google Client ID..." aria-label="Google OAuth Client ID" />
-        <button id="login-save-client-id" class="login-config-save">Save & Reload</button>
-        <p class="login-config-help">
-          <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Create one here</a> — 
-          OAuth 2.0 Client ID (Web), add your site URL to Authorized JavaScript Origins.
-        </p>
-      </div>
-      <button class="login-guide-btn" id="login-guide-btn">📖 How to Get Your API Keys</button>
-      <p class="login-privacy">Your API keys and data are stored locally in your browser, scoped to your Google account. Nothing is sent to any server.</p>
-    </div>
-  </div>
+  <!-- Login overlay removed — app loads directly, Google Sign-In is optional via sidebar -->
 
   <!-- Setup Guide Modal -->
   <div id="guide-modal" class="guide-overlay hidden">
@@ -42,24 +23,6 @@
         <div class="guide-section">
           <div class="guide-section-num">1</div>
           <div class="guide-section-content">
-            <div class="guide-section-title">🔐 Google OAuth Client ID <span class="guide-tag required">Required for login</span></div>
-            <div class="guide-steps">
-              <div class="guide-step">Go to <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a></div>
-              <div class="guide-step">Click <strong>Select a project</strong> (top bar) → <strong>New Project</strong> → name it anything (e.g. "Stock Tracker") → <strong>Create</strong></div>
-              <div class="guide-step">In the left menu, go to <strong>APIs &amp; Services</strong> → <strong>OAuth consent screen</strong></div>
-              <div class="guide-step">Choose <strong>External</strong> → <strong>Create</strong>. Fill in App name, your email for support &amp; developer contact. Click <strong>Save and Continue</strong> through all steps.</div>
-              <div class="guide-step">Go to <strong>APIs &amp; Services</strong> → <strong>Credentials</strong> → <strong>+ Create Credentials</strong> → <strong>OAuth client ID</strong></div>
-              <div class="guide-step">Application type: <strong>Web application</strong>. Under <strong>Authorized JavaScript origins</strong>, add your GitHub Pages URL (e.g. <code>https://yourusername.github.io</code>) — no trailing slash, no path.</div>
-              <div class="guide-step">Click <strong>Create</strong>. Copy the <strong>Client ID</strong> (looks like <code>123456789-abc.apps.googleusercontent.com</code>).</div>
-              <div class="guide-step">Paste it in the login screen's Client ID field.</div>
-            </div>
-            <div class="guide-note">⚡ The consent screen may say "unverified app" — that's fine for personal use. Click "Advanced" → "Go to app" to proceed.</div>
-          </div>
-        </div>
-
-        <div class="guide-section">
-          <div class="guide-section-num">2</div>
-          <div class="guide-section-content">
             <div class="guide-section-title">📊 Finnhub API Key <span class="guide-tag required">Required</span></div>
             <div class="guide-steps">
               <div class="guide-step">Go to <a href="https://finnhub.io/register" target="_blank" rel="noopener">finnhub.io/register</a></div>
@@ -72,7 +35,7 @@
         </div>
 
         <div class="guide-section">
-          <div class="guide-section-num">3</div>
+          <div class="guide-section-num">2</div>
           <div class="guide-section-content">
             <div class="guide-section-title">🤖 Groq API Key <span class="guide-tag optional">Optional — AI features</span></div>
             <div class="guide-steps">
@@ -86,7 +49,7 @@
         </div>
 
         <div class="guide-section">
-          <div class="guide-section-num">4</div>
+          <div class="guide-section-num">3</div>
           <div class="guide-section-content">
             <div class="guide-section-title">📈 Alpha Vantage API Key <span class="guide-tag optional">Optional — extra data</span></div>
             <div class="guide-steps">
@@ -103,7 +66,7 @@
           <table class="guide-summary-table">
             <thead><tr><th>Key</th><th>Required?</th><th>Free Tier</th><th>Powers</th></tr></thead>
             <tbody>
-              <tr><td>Google OAuth</td><td>Yes (login)</td><td>Unlimited</td><td>User authentication &amp; data isolation</td></tr>
+              <tr><td>Google Sign-In</td><td>Optional</td><td>Unlimited</td><td>User-scoped data isolation (sign in via sidebar)</td></tr>
               <tr><td>Finnhub</td><td>Yes</td><td>60 calls/min</td><td>Quotes, profiles, news, earnings, peers, insider data</td></tr>
               <tr><td>Groq</td><td>No</td><td>14,400/day</td><td>All AI analysis tiles &amp; verdict</td></tr>
               <tr><td>Alpha Vantage</td><td>No</td><td>25/day</td><td>Company overview, transcripts, technicals, revenue</td></tr>
@@ -115,7 +78,7 @@
     </div>
   </div>
 
-  <div id="app" class="hidden">
+  <div id="app">
     <!-- Market Ticker Bar -->
     <div id="market-ticker" class="market-ticker">
       <div class="ticker-items" id="ticker-items">
@@ -147,7 +110,9 @@
       <div id="stock-list" class="stock-list"></div>
       <button id="morning-report-btn" class="morning-report-btn" title="Run Senior Analyst on all stocks and email the report">📧 Morning Report</button>
       <div id="morning-report-progress" class="morning-report-progress hidden"></div>
-      <div id="sidebar-user" class="sidebar-user"></div>
+      <div id="sidebar-user" class="sidebar-user">
+        <div id="sidebar-google-btn" class="sidebar-google-btn"></div>
+      </div>
     </aside>
 
     <!-- Main detail panel -->
@@ -164,6 +129,10 @@
         <div class="key-row">
           <p><a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">Alpha Vantage</a> key (optional):</p>
           <input type="text" id="av-key-input" placeholder="Paste Alpha Vantage key..." aria-label="Alpha Vantage API key" />
+        </div>
+        <div class="key-row">
+          <p>📧 Morning Report email (optional):</p>
+          <input type="email" id="report-email-input" placeholder="your@email.com" aria-label="Morning report email address" />
         </div>
         <button id="save-key-btn">Save Keys</button>
       </div>

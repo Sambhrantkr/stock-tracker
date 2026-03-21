@@ -1,188 +1,145 @@
 /**
- * Google Sign-In Authentication Module
- * Uses Google Identity Services (GSI) for client-side auth.
- * Each user gets isolated localStorage keyed by their Google ID.
- *
- * Setup: Create a Google Cloud project, enable OAuth, create a Web Client ID.
- * https://console.cloud.google.com/apis/credentials
- * Add your GitHub Pages URL to Authorized JavaScript Origins.
+ * Google Sign-In Authentication Module (Optional Login)
+ * Users can use the app without logging in (localStorage only).
+ * Signing in with Google scopes data to the user's account.
  */
 var Auth = (function() {
-  // Replace with your own Google OAuth Client ID
-  var CLIENT_ID = '';
+  var CLIENT_ID = localStorage.getItem('google_client_id') || '';
+  var _user = null;
+  var _onLoginCb = null;
+  var _onLogoutCb = null;
 
-  var currentUser = null;
-  var onLoginCb = null;
-  var onLogoutCb = null;
-
-  function getClientId() {
-    return localStorage.getItem('google_client_id') || CLIENT_ID;
+  function _storageKey(k) {
+    if (_user && _user.sub) return 'u_' + _user.sub + '_' + k;
+    return k;
   }
 
-  function setClientId(id) {
-    localStorage.setItem('google_client_id', id.trim());
-  }
-
-  /** Returns the storage key prefix for the current user, e.g. "u_123456_" */
-  function prefix() {
-    if (!currentUser) return '';
-    return 'u_' + currentUser.id + '_';
-  }
-
-  /** User-scoped localStorage get */
-  function getItem(key) {
-    return localStorage.getItem(prefix() + key);
-  }
-
-  /** User-scoped localStorage set */
-  function setItem(key, value) {
-    localStorage.setItem(prefix() + key, value);
-  }
-
-  /** User-scoped localStorage remove */
-  function removeItem(key) {
-    localStorage.removeItem(prefix() + key);
-  }
-
-  function isLoggedIn() {
-    return currentUser !== null;
-  }
-
-  function getUser() {
-    return currentUser;
-  }
-
-  function onLogin(cb) { onLoginCb = cb; }
-  function onLogout(cb) { onLogoutCb = cb; }
-
-  /** Decode a JWT token payload (Google credential is a JWT) */
-  function decodeJwt(token) {
+  function _decodeJWT(token) {
     try {
       var parts = token.split('.');
       if (parts.length !== 3) return null;
-      var payload = parts[1];
-      // Base64url decode
-      payload = payload.replace(/-/g, '+').replace(/_/g, '/');
-      var pad = payload.length % 4;
-      if (pad) payload += new Array(5 - pad).join('=');
+      var payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
       var decoded = atob(payload);
       return JSON.parse(decoded);
-    } catch (e) {
-      console.warn('JWT decode error:', e.message);
+    } catch(e) {
       return null;
     }
   }
 
-  /** Handle the Google credential response */
-  function handleCredentialResponse(response) {
+  function _handleCredentialResponse(response) {
     if (!response || !response.credential) return;
-    var payload = decodeJwt(response.credential);
-    if (!payload || !payload.sub) return;
-
-    currentUser = {
-      id: payload.sub,
-      email: payload.email || '',
+    var payload = _decodeJWT(response.credential);
+    if (!payload) return;
+    _user = {
+      sub: payload.sub,
       name: payload.name || '',
-      picture: payload.picture || '',
-      token: response.credential,
+      email: payload.email || '',
+      picture: payload.picture || ''
     };
-
-    // Persist session
-    localStorage.setItem('auth_session', JSON.stringify({
-      id: currentUser.id,
-      email: currentUser.email,
-      name: currentUser.name,
-      picture: currentUser.picture,
-    }));
-
-    if (onLoginCb) onLoginCb(currentUser);
+    localStorage.setItem('gsi_credential', response.credential);
+    // Migrate plain keys to user-scoped keys on first login
+    _migrateKeys();
+    if (_onLoginCb) _onLoginCb(_user);
   }
 
-  /** Try to restore session from localStorage */
-  function restoreSession() {
-    try {
-      var saved = localStorage.getItem('auth_session');
-      if (!saved) return false;
-      var data = JSON.parse(saved);
-      if (!data || !data.id) return false;
-      currentUser = {
-        id: data.id,
-        email: data.email || '',
-        name: data.name || '',
-        picture: data.picture || '',
-        token: null,
-      };
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  function logout() {
-    currentUser = null;
-    localStorage.removeItem('auth_session');
-    // Revoke Google session
-    if (window.google && google.accounts && google.accounts.id) {
-      google.accounts.id.disableAutoSelect();
-    }
-    if (onLogoutCb) onLogoutCb();
-  }
-
-  /** Initialize Google Identity Services */
-  function initGSI() {
-    var clientId = getClientId();
-    if (!clientId) return;
-    if (!window.google || !google.accounts || !google.accounts.id) {
-      console.warn('Google Identity Services not loaded.');
-      return;
-    }
-    google.accounts.id.initialize({
-      client_id: clientId,
-      callback: handleCredentialResponse,
-      auto_select: true,
-      cancel_on_tap_outside: false,
+  function _migrateKeys() {
+    var keys = ['finnhub_key', 'groq_key', 'av_key', 'tracked_stocks', 'price_alerts',
+                'report_email', 'tile_order', 'tile_collapsed', 'tile_visibility'];
+    keys.forEach(function(k) {
+      var scoped = _storageKey(k);
+      if (scoped !== k && !localStorage.getItem(scoped)) {
+        var val = localStorage.getItem(k);
+        if (val) localStorage.setItem(scoped, val);
+      }
     });
-  }
-
-  /** Render the Google Sign-In button into a container element */
-  function renderButton(containerId) {
-    var clientId = getClientId();
-    if (!clientId) return;
-    if (!window.google || !google.accounts || !google.accounts.id) return;
-    var el = document.getElementById(containerId);
-    if (!el) return;
-    google.accounts.id.renderButton(el, {
-      theme: 'filled_black',
-      size: 'large',
-      shape: 'rectangular',
-      text: 'signin_with',
-      width: 280,
-    });
-  }
-
-  /** Show the One Tap prompt */
-  function prompt() {
-    var clientId = getClientId();
-    if (!clientId) return;
-    if (!window.google || !google.accounts || !google.accounts.id) return;
-    google.accounts.id.prompt();
   }
 
   return {
-    getClientId: getClientId,
-    setClientId: setClientId,
-    prefix: prefix,
-    getItem: getItem,
-    setItem: setItem,
-    removeItem: removeItem,
-    isLoggedIn: isLoggedIn,
-    getUser: getUser,
-    onLogin: onLogin,
-    onLogout: onLogout,
-    restoreSession: restoreSession,
-    logout: logout,
-    initGSI: initGSI,
-    renderButton: renderButton,
-    prompt: prompt,
+    getItem: function(k) { return localStorage.getItem(_storageKey(k)); },
+    setItem: function(k, v) { localStorage.setItem(_storageKey(k), v); },
+    removeItem: function(k) { localStorage.removeItem(_storageKey(k)); },
+
+    isLoggedIn: function() { return !!_user; },
+    getUser: function() { return _user; },
+
+    onLogin: function(cb) { _onLoginCb = cb; },
+    onLogout: function(cb) { _onLogoutCb = cb; },
+
+    getClientId: function() { return CLIENT_ID; },
+    setClientId: function(id) {
+      CLIENT_ID = id;
+      localStorage.setItem('google_client_id', id);
+    },
+
+    initGSI: function() {
+      if (!CLIENT_ID) return false;
+      if (!window.google || !google.accounts || !google.accounts.id) return false;
+      try {
+        google.accounts.id.initialize({
+          client_id: CLIENT_ID,
+          callback: _handleCredentialResponse,
+          auto_select: true,
+          cancel_on_tap_outside: false
+        });
+        return true;
+      } catch(e) {
+        console.warn('GSI init error:', e);
+        return false;
+      }
+    },
+
+    renderButton: function(elementId) {
+      if (!CLIENT_ID) return;
+      if (!window.google || !google.accounts || !google.accounts.id) return;
+      var el = document.getElementById(elementId);
+      if (!el) return;
+      try {
+        google.accounts.id.renderButton(el, {
+          theme: 'filled_black',
+          size: 'large',
+          width: 240,
+          text: 'signin_with'
+        });
+      } catch(e) {
+        console.warn('GSI render error:', e);
+      }
+    },
+
+    prompt: function() {
+      if (!CLIENT_ID) return;
+      if (!window.google || !google.accounts || !google.accounts.id) return;
+      try { google.accounts.id.prompt(); } catch(e) {}
+    },
+
+    restoreSession: function() {
+      var cred = localStorage.getItem('gsi_credential');
+      if (!cred) return false;
+      var payload = _decodeJWT(cred);
+      if (!payload) {
+        localStorage.removeItem('gsi_credential');
+        return false;
+      }
+      // Check expiry
+      if (payload.exp && payload.exp * 1000 < Date.now()) {
+        localStorage.removeItem('gsi_credential');
+        return false;
+      }
+      _user = {
+        sub: payload.sub,
+        name: payload.name || '',
+        email: payload.email || '',
+        picture: payload.picture || ''
+      };
+      return true;
+    },
+
+    logout: function() {
+      _user = null;
+      localStorage.removeItem('gsi_credential');
+      if (window.google && google.accounts && google.accounts.id) {
+        try { google.accounts.id.disableAutoSelect(); } catch(e) {}
+      }
+      if (_onLogoutCb) _onLogoutCb();
+    }
   };
 })();
