@@ -2380,7 +2380,11 @@
   function renderMacroHTML(el, ai, articles) {
     var icon = ai.impact === 'POSITIVE' ? '\uD83D\uDCC8' : ai.impact === 'NEGATIVE' ? '\uD83D\uDCC9' : '\u2194\uFE0F';
     var impactClass = ai.impact === 'POSITIVE' ? 'BULLISH' : ai.impact === 'NEGATIVE' ? 'BEARISH' : 'NEUTRAL';
-    var h = '<div class="ai-summary">' + (ai.summary || '') + '</div>';
+    var h = '';
+    if (ai.macroRegime) {
+      h += '<div class="ai-outlook-reason" style="margin-bottom:0.5rem;font-style:italic;">\uD83C\uDF0D ' + ai.macroRegime + '</div>';
+    }
+    h += '<div class="ai-summary">' + (ai.summary || '') + '</div>';
     h += '<div class="ai-outlook ' + impactClass + '">' + icon + ' Macro Impact: ' + ai.impact + '</div>';
     h += '<div class="ai-outlook-reason">' + (ai.impactReason || '') + '</div>';
     if (ai.macroFactors && ai.macroFactors.length) {
@@ -4002,27 +4006,27 @@
       try {
         if (c.articles && c.articles.length && !c.aiResult) {
           await runAIAnalysis(sym);
-          await delay(3000);
+          await delay(4000);
           c = cache[sym];
         }
         if (((c.recommendations && c.recommendations.length) || (c.upgrades && c.upgrades.length)) && !c.analystAIResult) {
           await runAnalystAnalysis(sym);
-          await delay(3000);
+          await delay(4000);
           c = cache[sym];
         }
         if (c.macroArticles && c.macroArticles.length && !c.macroAIResult) {
           await runMacroAnalysis(sym);
-          await delay(3000);
+          await delay(4000);
           c = cache[sym];
         }
         if (!c.transcriptAIResult) {
           try { await runTranscriptSummary(sym); } catch(e) {}
-          await delay(3000);
+          await delay(4000);
           c = cache[sym];
         }
         if (!c.fundamentalsResult && AlphaAPI.hasKey()) {
           try { await loadFundamentalsData(sym); } catch(e) {}
-          await delay(3000);
+          await delay(4000);
           c = cache[sym];
         }
       } catch (e) {
@@ -4030,14 +4034,14 @@
       }
 
       // Buffer delay before senior analyst (heaviest AI call, uses 70B model)
-      await delay(4000);
+      await delay(5000);
 
       // 3. Run Senior Analyst verdict
       morningReportProgress.innerHTML = '<div>\uD83C\uDFAF ' + step + ' — ' + sym + ': Senior Analyst deep analysis\u2026</div><div class="mrp-bar" style="width:' + Math.round(((i + 0.7) / total) * 100) + '%"></div>';
 
       var verdictAttempts = 0;
       var verdictDone = false;
-      while (verdictAttempts < 2 && !verdictDone) {
+      while (verdictAttempts < 3 && !verdictDone) {
         verdictAttempts++;
         try {
           var verdict = await NewsAI.generateVerdict(
@@ -4061,12 +4065,14 @@
           if (selectedSymbol === sym) renderDetail(sym);
           verdictDone = true;
         } catch (e) {
-          if (verdictAttempts < 2 && e.message && e.message.indexOf('rate') !== -1) {
+          if (verdictAttempts < 3 && e.message && e.message.toLowerCase().indexOf('rate') !== -1) {
             morningReportProgress.innerHTML = '<div>\u23F3 ' + step + ' — ' + sym + ': Rate limited, waiting 35s before retry\u2026</div><div class="mrp-bar" style="width:' + Math.round(((i + 0.5) / total) * 100) + '%"></div>';
             await delay(35000);
             c = cache[sym];
           } else {
             failed.push(sym + ' (' + e.message + ')');
+            console.warn('Morning report verdict failed for ' + sym + ':', e.message);
+            morningReportProgress.innerHTML = '<div>\u26A0\uFE0F ' + step + ' — ' + sym + ': Verdict failed — ' + e.message + '</div><div class="mrp-bar" style="width:' + Math.round(((i + 0.8) / total) * 100) + '%"></div>';
             verdictDone = true;
           }
         }

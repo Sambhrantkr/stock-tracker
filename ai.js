@@ -155,9 +155,55 @@ const NewsAI = (() => {
     var kpiContext = kpis ? 'Current KPIs: P/E=' + (kpis.peRatio || 'N/A') + ', EPS=' + (kpis.eps || 'N/A') + ', Beta=' + (kpis.beta || 'N/A') + ', Div Yield=' + (kpis.dividendYield || 'N/A') + ', 52W High=' + (kpis.week52High || 'N/A') + ', 52W Low=' + (kpis.week52Low || 'N/A') : '';
     var sectorStr = sector ? 'Sector: ' + sector : '';
 
-    var prompt = 'You are a senior macro strategist. Analyze these recent macro/economy/market news headlines and explain their impact specifically on ' + symbol + ' (' + (companyName || symbol) + ').\n\n' + sectorStr + '\n' + kpiContext + '\n\nRecent Macro & Economy News:\n' + newsList + '\n\nRespond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "2-3 sentence summary of the current macro environment and what it means specifically for ' + symbol + '",\n  "impact": "POSITIVE" or "NEGATIVE" or "MIXED",\n  "impactReason": "1 sentence on the overall macro impact on this stock",\n  "macroFactors": [\n    {\n      "factor": "short label (e.g. Interest Rates, Inflation, GDP, Trade Policy, Fed Policy)",\n      "direction": "TAILWIND" or "HEADWIND" or "NEUTRAL",\n      "detail": "1 sentence on how this macro factor affects ' + symbol + ' specifically"\n    }\n  ],\n  "risks": [\n    {\n      "risk": "specific macro risk",\n      "severity": "HIGH" or "MEDIUM" or "LOW",\n      "detail": "1 sentence on why this is a risk for ' + symbol + '"\n    }\n  ]\n}\n\nKeep macroFactors to 3-5 items. Keep risks to 2-3 items. Be specific to ' + symbol + ' and its sector, not generic.';
+    // System persona: macro economics reporter
+    var sysMsg = 'You are Sarah Mitchell — Chief Economics Correspondent and Macro Analyst.\n';
+    sysMsg += 'Background: 20 years covering global economics for Reuters, Bloomberg, and the Financial Times.\n';
+    sysMsg += 'You are known for:\n';
+    sysMsg += '- Deep expertise in Federal Reserve policy, interest rate cycles, and their market impact\n';
+    sysMsg += '- Tracking geopolitical conflicts (wars, trade wars, sanctions) and their economic ripple effects\n';
+    sysMsg += '- Analyzing US employment data (jobs reports, unemployment, wage growth) and what it signals\n';
+    sysMsg += '- Decoding government policies (fiscal stimulus, regulation, tariffs, tax changes) and their sector-specific impact\n';
+    sysMsg += '- Connecting global macro events (China slowdown, EU energy crisis, emerging market stress) to US equities\n\n';
+    sysMsg += 'YOUR FOCUS AREAS (prioritize these when analyzing headlines):\n';
+    sysMsg += '1. FED & MONETARY POLICY: Interest rate decisions, inflation data (CPI/PCE), quantitative tightening, Fed speeches\n';
+    sysMsg += '2. GEOPOLITICS & WARS: Armed conflicts, trade wars, sanctions, supply chain disruptions, oil/energy shocks\n';
+    sysMsg += '3. EMPLOYMENT & LABOR: Jobs reports, unemployment claims, wage inflation, labor market tightness\n';
+    sysMsg += '4. GOVERNMENT POLICY: Fiscal spending, tax policy, regulation changes, infrastructure bills, industry-specific legislation\n';
+    sysMsg += '5. GLOBAL ECONOMY: GDP data, recession signals, currency moves, sovereign debt, commodity prices\n\n';
+    sysMsg += 'RULES:\n';
+    sysMsg += '- Filter out noise — focus on articles that relate to the 5 areas above. Ignore fluff or company-specific news.\n';
+    sysMsg += '- Be specific about HOW each macro factor transmits to the stock (e.g. "higher rates increase TSLA financing costs for buyers").\n';
+    sysMsg += '- Always state the current macro regime (tightening/easing, expansion/contraction) and where we are in the cycle.\n';
+    sysMsg += '- Always respond in the exact JSON format requested. No markdown, no commentary outside JSON.';
 
-    return groqFetch([{ role: 'user', content: prompt }], 800, 0.3);
+    var prompt = 'Analyze these recent macro/economy/market news headlines. Focus on the key economic themes — Fed policy, wars/geopolitics, employment, government policy, and global economy.\n';
+    prompt += 'Then explain their impact specifically on ' + symbol + ' (' + (companyName || symbol) + ').\n\n';
+    prompt += sectorStr + '\n' + kpiContext + '\n\n';
+    prompt += 'Recent Macro & Economy News:\n' + newsList + '\n\n';
+    prompt += 'Respond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n';
+    prompt += '{\n';
+    prompt += '  "macroRegime": "1 sentence describing the current macro regime (e.g. late-cycle tightening, early easing, stagflation risk)",\n';
+    prompt += '  "summary": "2-3 sentence summary of the most important macro developments from these headlines and what they mean for ' + symbol + '",\n';
+    prompt += '  "impact": "POSITIVE" or "NEGATIVE" or "MIXED",\n';
+    prompt += '  "impactReason": "1 sentence on the overall macro impact on this stock",\n';
+    prompt += '  "macroFactors": [\n';
+    prompt += '    {\n';
+    prompt += '      "factor": "short label from: Fed Policy, Interest Rates, Inflation, Geopolitics/Wars, Trade Policy, Employment, Government Policy, GDP/Growth, Energy/Commodities, Currency",\n';
+    prompt += '      "direction": "TAILWIND" or "HEADWIND" or "NEUTRAL",\n';
+    prompt += '      "detail": "1 sentence on how this macro factor affects ' + symbol + ' specifically"\n';
+    prompt += '    }\n';
+    prompt += '  ],\n';
+    prompt += '  "risks": [\n';
+    prompt += '    {\n';
+    prompt += '      "risk": "specific macro risk tied to headlines",\n';
+    prompt += '      "severity": "HIGH" or "MEDIUM" or "LOW",\n';
+    prompt += '      "detail": "1 sentence on why this is a risk for ' + symbol + '"\n';
+    prompt += '    }\n';
+    prompt += '  ]\n';
+    prompt += '}\n\n';
+    prompt += 'Keep macroFactors to 3-5 items. Keep risks to 2-3 items. Only include factors supported by the actual headlines — do not invent macro themes not present in the news.';
+
+    return groqFetch([{ role: 'system', content: sysMsg }, { role: 'user', content: prompt }], 900, 0.3);
   }
 
   /**
@@ -612,6 +658,7 @@ const NewsAI = (() => {
     if (allData.macroAIResult) {
       var mai = allData.macroAIResult;
       b += '  MACRO AI:        Impact=' + (mai.impact || 'N/A') + '\n';
+      if (mai.macroRegime) b += '    Macro Regime:  ' + mai.macroRegime + '\n';
       b += '                   ' + (mai.summary || '') + '\n';
       if (mai.impactReason) b += '    Impact Reason: ' + mai.impactReason + '\n';
       if (mai.macroFactors && mai.macroFactors.length) {
