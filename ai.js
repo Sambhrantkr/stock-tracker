@@ -32,7 +32,7 @@ const NewsAI = (() => {
   // Each model has its own 30 RPM bucket on Groq, so we run separate queues.
   // This gives us ~90 RPM combined instead of 30.
   var _modelQueues = {};
-  var GROQ_MIN_GAP_MS = 2200; // ~27 req/min per model, safe under 30 RPM
+  var GROQ_MIN_GAP_MS = 2500; // ~24 req/min per model, safe under 30 RPM
 
   function _getModelQueue(model) {
     if (!_modelQueues[model]) {
@@ -67,7 +67,7 @@ const NewsAI = (() => {
       } catch (e) {
         mq.lastCallTime = Date.now();
         if (e.message && (e.message.toLowerCase().indexOf('rate') !== -1 || e.message.indexOf('Network') !== -1)) {
-          mq.backoffUntil = Date.now() + 10000;
+          mq.backoffUntil = Date.now() + 15000;
         }
         item.reject(e);
       }
@@ -202,12 +202,22 @@ const NewsAI = (() => {
    */
   async function groqFetch(messages, maxTokens, temperature, opts) {
     var useModel = (opts && opts.model) || MODEL_LIGHT;
-    // Route LIGHT-tier tasks to Gemini when key is available
+    // Route LIGHT-tier tasks to Gemini when key is available, with Groq fallback
     if (useModel === MODEL_LIGHT && hasGeminiKey()) {
-      return _geminiEnqueue(function() {
-        return _geminiFetchDirect(messages, maxTokens, temperature);
-      });
+      try {
+        console.log('[AI] Routing to Gemini (LIGHT tier)');
+        return await _geminiEnqueue(function() {
+          return _geminiFetchDirect(messages, maxTokens, temperature);
+        });
+      } catch (e) {
+        // If Gemini fails (rate limit, network, etc.), fall back to Groq LIGHT
+        console.warn('[AI] Gemini failed, falling back to Groq:', e.message);
+        return _groqEnqueue(function() {
+          return _groqFetchDirect(messages, maxTokens, temperature, opts);
+        }, useModel);
+      }
     }
+    console.log('[AI] Routing to Groq (' + useModel.split('/').pop() + ')');
     return _groqEnqueue(function() {
       return _groqFetchDirect(messages, maxTokens, temperature, opts);
     }, useModel);
