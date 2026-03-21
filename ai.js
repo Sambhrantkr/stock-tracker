@@ -960,6 +960,62 @@ const NewsAI = (() => {
   }
 
   /**
+   * Portfolio Wealth Manager — synthesizes all Senior Analyst verdicts into
+   * a clean, actionable morning briefing with portfolio-level insights.
+   * verdicts: array of verdict objects (each with _symbol, _name, _price, _change, verdict, etc.)
+   */
+  async function generatePortfolioBrief(verdicts) {
+    if (!hasKey()) throw new Error('API key required.');
+    if (!verdicts || !verdicts.length) throw new Error('No verdicts to analyze.');
+
+    var sysMsg = 'You are Victoria Park — Senior Portfolio Strategist & Wealth Manager.\n';
+    sysMsg += 'Background: 20 years at JPMorgan Private Bank and UBS Wealth Management. CFA, CAIA charterholder.\n';
+    sysMsg += 'You manage $500M+ in client assets. You are known for:\n';
+    sysMsg += '- Distilling complex multi-stock analysis into clear, actionable morning briefs\n';
+    sysMsg += '- Portfolio-level thinking: correlation, concentration risk, sector exposure\n';
+    sysMsg += '- Decisive action calls: exactly what to buy, sell, hold, and why\n';
+    sysMsg += '- Risk-first mindset: always flag what could go wrong before what could go right\n\n';
+    sysMsg += 'RULES: Be direct. No fluff. Every sentence must be actionable or informative. JSON only.';
+
+    // Build compact data for each stock
+    var data = '';
+    verdicts.forEach(function(v, i) {
+      data += (i + 1) + '. ' + v._symbol + ' (' + v._name + ')';
+      data += ' | Price: $' + (v._price ? v._price.toFixed(2) : 'N/A');
+      data += ' | Chg: ' + (v._change != null ? (v._change >= 0 ? '+' : '') + v._change.toFixed(2) + '%' : 'N/A');
+      data += ' | Verdict: ' + (v.verdict || 'N/A');
+      data += ' | Confidence: ' + (v.confidence || 'N/A');
+      data += ' | Target: $' + (v.priceTarget ? v.priceTarget.toFixed(2) : 'N/A');
+      data += ' | Upside: ' + (v.upside ? v.upside + '%' : 'N/A');
+      if (v.intrinsicValue != null) data += ' | DCF: $' + parseFloat(v.intrinsicValue).toFixed(2);
+      data += '\n';
+      if (v.summary) data += '   Summary: ' + v.summary + '\n';
+      if (v.verdictReason) data += '   Rationale: ' + v.verdictReason + '\n';
+      if (v.bull && v.bull.length) data += '   Bull: ' + v.bull.slice(0, 2).join(' | ') + '\n';
+      if (v.bear && v.bear.length) data += '   Bear: ' + v.bear.slice(0, 2).join(' | ') + '\n';
+      if (v.catalysts && v.catalysts.length) data += '   Catalysts: ' + v.catalysts.map(function(c) { return c.event + ' (' + c.timeline + ')'; }).join(', ') + '\n';
+    });
+
+    var userMsg = 'Here are the Senior Analyst verdicts for my portfolio (' + verdicts.length + ' stocks):\n\n' + data;
+    userMsg += '\nSynthesize into a morning portfolio brief. Respond in EXACT JSON:\n';
+    userMsg += '{"portfolioVerdict":"BULLISH|BEARISH|CAUTIOUS|NEUTRAL",';
+    userMsg += '"riskLevel":"LOW|MODERATE|ELEVATED|HIGH",';
+    userMsg += '"summary":"3-4 sentence portfolio-level overview — overall positioning, key themes, biggest movers",';
+    userMsg += '"actions":[{"symbol":"...","action":"BUY|SELL|HOLD|TRIM|ADD","urgency":"NOW|THIS WEEK|MONITOR","reason":"1 sentence"}],';
+    userMsg += '"topPick":{"symbol":"...","reason":"1 sentence why this is the best opportunity right now"},';
+    userMsg += '"topRisk":{"symbol":"...","reason":"1 sentence why this needs attention"},';
+    userMsg += '"sectorExposure":"1 sentence on sector concentration or diversification",';
+    userMsg += '"portfolioRisks":["1 sentence portfolio-level risk"],';
+    userMsg += '"weekAhead":"2-3 sentences on what to watch this week — earnings, macro events, key levels"}\n';
+    userMsg += 'Actions array must have one entry per stock. Be specific. No generic advice.';
+
+    return groqFetch([
+      { role: 'system', content: sysMsg },
+      { role: 'user', content: userMsg }
+    ], 1500, 0.4, { model: MODEL_DEEP, timeoutMs: 60000 });
+  }
+
+  /**
    * Chat with wealth advisor — streams text response (not JSON).
    * messages: array of { role, content } (full conversation history)
    * Returns plain text string (not parsed JSON).
@@ -1077,5 +1133,5 @@ const NewsAI = (() => {
     }
   }
 
-  return { getKey, setKey, hasKey, getKey2, setKey2, hasKey2, getGeminiKey, setGeminiKey, hasGeminiKey, testGemini, analyzeNews, analyzeAnalysts, analyzeMacro, summarizeTranscript, generateVerdict, analyzeFundamentals, analyzeTechnicals, chatAdvisor };
+  return { getKey, setKey, hasKey, getKey2, setKey2, hasKey2, getGeminiKey, setGeminiKey, hasGeminiKey, testGemini, analyzeNews, analyzeAnalysts, analyzeMacro, summarizeTranscript, generateVerdict, generatePortfolioBrief, analyzeFundamentals, analyzeTechnicals, chatAdvisor };
 })();

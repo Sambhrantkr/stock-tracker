@@ -33,16 +33,24 @@ var AlphaAPI = (function() {
   // One-time migration: convert old single-counter {date,count} to per-key {date,key1,key2}
   (function migrateCallLog() {
     try {
-      var raw = localStorage.getItem('av_call_log');
-      if (!raw) return;
-      var log = JSON.parse(raw);
-      if (!log || !log.date) return;
-      // Old format: {date, count} — convert to {date, key1, key2}
-      if (log.count !== undefined && log.key1 === undefined) {
-        var newLog = { date: log.date, key1: log.count || 0, key2: 0 };
-        localStorage.setItem('av_call_log', JSON.stringify(newLog));
-        console.log('[AV] Migrated call log: key1=' + newLog.key1 + ' (key2 ready)');
+      // Migrate both localStorage and Auth storage
+      var sources = [
+        { get: function() { return localStorage.getItem('av_call_log'); }, set: function(v) { localStorage.setItem('av_call_log', v); } }
+      ];
+      if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) {
+        sources.push({ get: function() { return Auth.getItem('av_call_log'); }, set: function(v) { Auth.setItem('av_call_log', v); } });
       }
+      sources.forEach(function(src) {
+        var raw = src.get();
+        if (!raw) return;
+        var log = JSON.parse(raw);
+        if (!log || !log.date) return;
+        if (log.count !== undefined && log.key1 === undefined) {
+          var newLog = { date: log.date, key1: log.count || 0, key2: 0 };
+          src.set(JSON.stringify(newLog));
+          console.log('[AV] Migrated call log: key1=' + newLog.key1 + ' (key2 ready)');
+        }
+      });
     } catch(e) {}
   })();
 

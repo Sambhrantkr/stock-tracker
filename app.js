@@ -121,6 +121,11 @@
   if (aboutBtn) aboutBtn.addEventListener('click', function() { aboutModal.classList.remove('hidden'); });
   if (aboutClose) aboutClose.addEventListener('click', function() { aboutModal.classList.add('hidden'); });
   if (aboutModal) aboutModal.addEventListener('click', function(e) { if (e.target === aboutModal) aboutModal.classList.add('hidden'); });
+  var portfolioBriefModal = document.getElementById('portfolio-brief-modal');
+  var portfolioBriefContent = document.getElementById('portfolio-brief-content');
+  var portfolioBriefClose = document.getElementById('portfolio-brief-close');
+  if (portfolioBriefClose) portfolioBriefClose.addEventListener('click', function() { portfolioBriefModal.classList.add('hidden'); });
+  if (portfolioBriefModal) portfolioBriefModal.addEventListener('click', function(e) { if (e.target === portfolioBriefModal) portfolioBriefModal.classList.add('hidden'); });
   var guideModal = document.getElementById('guide-modal');
   var guideClose = document.getElementById('guide-close');
   var guideBtn = document.getElementById('guide-btn');
@@ -301,7 +306,7 @@
       if (!btn || btn.disabled) return;
       var base = btn.textContent.replace(/\s*\(\d+\)$/, '');
       btn.textContent = base + ' (' + remaining + ')';
-      if (remaining <= 0) { btn.disabled = true; btn.title = 'Alpha Vantage daily limit reached. Resets midnight EST.'; }
+      if (remaining <= 0) { btn.title = 'Alpha Vantage daily limit reached. Cached data may still load.'; }
     });
     // Show/update the AV budget bar in settings if it exists
     var budgetEl = document.getElementById('av-budget-display');
@@ -3932,6 +3937,126 @@
     }
   }
 
+  // --- Portfolio Brief renderer ---
+  function showPortfolioBrief(brief, results) {
+    if (!portfolioBriefModal || !portfolioBriefContent) return;
+
+    // Fallback if AI returned a string instead of object
+    if (typeof brief === 'string') {
+      try { brief = JSON.parse(brief); } catch (e) {
+        portfolioBriefContent.innerHTML = '<p style="color:#f87171;">Could not parse portfolio brief.</p><pre style="white-space:pre-wrap;color:#94a3b8;font-size:12px;">' + brief + '</pre>';
+        portfolioBriefModal.classList.remove('hidden');
+        return;
+      }
+    }
+
+    var verdictColors = {
+      'BULLISH': '#22c55e', 'BEARISH': '#ef4444', 'CAUTIOUS': '#f59e0b', 'NEUTRAL': '#60a5fa'
+    };
+    var riskColors = {
+      'LOW': '#22c55e', 'MODERATE': '#f59e0b', 'ELEVATED': '#f97316', 'HIGH': '#ef4444'
+    };
+    var actionColors = {
+      'BUY': '#22c55e', 'STRONG BUY': '#22c55e', 'ADD': '#4ade80',
+      'SELL': '#ef4444', 'STRONG SELL': '#ef4444', 'TRIM': '#f97316', 'HOLD': '#f59e0b'
+    };
+    var urgencyBadge = {
+      'NOW': 'background:#ef4444;color:#fff',
+      'THIS WEEK': 'background:#f59e0b;color:#000',
+      'MONITOR': 'background:#334155;color:#94a3b8'
+    };
+
+    var vc = verdictColors[brief.portfolioVerdict] || '#888';
+    var rc = riskColors[brief.riskLevel] || '#888';
+    var today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+    var h = '';
+    // Header
+    h += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">';
+    h += '<span style="font-size:20px;font-weight:700;color:' + vc + ';">' + (brief.portfolioVerdict || 'N/A') + '</span>';
+    h += '<span style="padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:' + rc + '22;color:' + rc + ';border:1px solid ' + rc + '44;">Risk: ' + (brief.riskLevel || 'N/A') + '</span>';
+    h += '<span style="margin-left:auto;font-size:12px;color:#64748b;">' + today + ' | ' + results.length + ' stocks</span>';
+    h += '</div>';
+
+    // Summary
+    if (brief.summary) {
+      h += '<p style="color:#cbd5e1;font-size:14px;line-height:1.5;margin:0 0 16px;padding:10px 12px;background:#1e293b;border-radius:6px;border-left:3px solid ' + vc + ';">' + brief.summary + '</p>';
+    }
+
+    // Top Pick & Top Risk
+    h += '<div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;">';
+    if (brief.topPick && brief.topPick.symbol) {
+      h += '<div style="flex:1;min-width:200px;padding:10px 12px;background:#052e16;border:1px solid #166534;border-radius:6px;">';
+      h += '<div style="font-size:11px;color:#4ade80;font-weight:600;margin-bottom:4px;">TOP PICK</div>';
+      h += '<div style="font-size:16px;font-weight:700;color:#22c55e;">' + brief.topPick.symbol + '</div>';
+      h += '<div style="font-size:12px;color:#86efac;margin-top:2px;">' + (brief.topPick.reason || '') + '</div>';
+      h += '</div>';
+    }
+    if (brief.topRisk && brief.topRisk.symbol) {
+      h += '<div style="flex:1;min-width:200px;padding:10px 12px;background:#2a0a0a;border:1px solid #7f1d1d;border-radius:6px;">';
+      h += '<div style="font-size:11px;color:#f87171;font-weight:600;margin-bottom:4px;">TOP RISK</div>';
+      h += '<div style="font-size:16px;font-weight:700;color:#ef4444;">' + brief.topRisk.symbol + '</div>';
+      h += '<div style="font-size:12px;color:#fca5a5;margin-top:2px;">' + (brief.topRisk.reason || '') + '</div>';
+      h += '</div>';
+    }
+    h += '</div>';
+
+    // Actions table
+    if (brief.actions && brief.actions.length) {
+      h += '<div style="overflow-x:auto;margin-bottom:16px;">';
+      h += '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+      h += '<thead><tr style="background:#1e293b;">';
+      h += '<th style="padding:8px 10px;text-align:left;color:#94a3b8;border-bottom:1px solid #334155;">Stock</th>';
+      h += '<th style="padding:8px 10px;text-align:center;color:#94a3b8;border-bottom:1px solid #334155;">Action</th>';
+      h += '<th style="padding:8px 10px;text-align:center;color:#94a3b8;border-bottom:1px solid #334155;">Urgency</th>';
+      h += '<th style="padding:8px 10px;text-align:left;color:#94a3b8;border-bottom:1px solid #334155;">Reason</th>';
+      h += '</tr></thead><tbody>';
+
+      brief.actions.forEach(function(a, idx) {
+        var bg = idx % 2 === 0 ? '#0f172a' : '#1e293b';
+        var ac = actionColors[a.action] || '#888';
+        var ub = urgencyBadge[a.urgency] || urgencyBadge['MONITOR'];
+        h += '<tr style="background:' + bg + ';">';
+        h += '<td style="padding:8px 10px;color:#e2e8f0;font-weight:600;border-bottom:1px solid #1e293b;">' + (a.symbol || '') + '</td>';
+        h += '<td style="padding:8px 10px;text-align:center;border-bottom:1px solid #1e293b;"><span style="color:' + ac + ';font-weight:700;">' + (a.action || '') + '</span></td>';
+        h += '<td style="padding:8px 10px;text-align:center;border-bottom:1px solid #1e293b;"><span style="padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;' + ub + '">' + (a.urgency || '') + '</span></td>';
+        h += '<td style="padding:8px 10px;color:#94a3b8;border-bottom:1px solid #1e293b;font-size:12px;">' + (a.reason || '') + '</td>';
+        h += '</tr>';
+      });
+      h += '</tbody></table></div>';
+    }
+
+    // Sector Exposure
+    if (brief.sectorExposure) {
+      h += '<div style="padding:8px 12px;background:#1e293b;border-radius:6px;margin-bottom:10px;font-size:13px;">';
+      h += '<span style="color:#60a5fa;font-weight:600;">Sector Exposure:</span> <span style="color:#cbd5e1;">' + brief.sectorExposure + '</span></div>';
+    }
+
+    // Portfolio Risks
+    if (brief.portfolioRisks && brief.portfolioRisks.length) {
+      h += '<div style="padding:8px 12px;background:#1a0a0a;border:1px solid #7f1d1d33;border-radius:6px;margin-bottom:10px;">';
+      h += '<div style="color:#f87171;font-weight:600;font-size:12px;margin-bottom:4px;">Portfolio Risks</div>';
+      brief.portfolioRisks.forEach(function(r) {
+        h += '<div style="color:#fca5a5;font-size:13px;padding:2px 0;">- ' + r + '</div>';
+      });
+      h += '</div>';
+    }
+
+    // Week Ahead
+    if (brief.weekAhead) {
+      h += '<div style="padding:8px 12px;background:#172554;border:1px solid #1e40af33;border-radius:6px;margin-bottom:6px;">';
+      h += '<div style="color:#60a5fa;font-weight:600;font-size:12px;margin-bottom:4px;">Week Ahead</div>';
+      h += '<div style="color:#93c5fd;font-size:13px;line-height:1.5;">' + brief.weekAhead + '</div>';
+      h += '</div>';
+    }
+
+    // Footer
+    h += '<div style="text-align:center;margin-top:12px;font-size:11px;color:#475569;">Victoria Park — Senior Portfolio Strategist | Generated ' + new Date().toLocaleTimeString() + '</div>';
+
+    portfolioBriefContent.innerHTML = h;
+    portfolioBriefModal.classList.remove('hidden');
+  }
+
   // --- Morning Report: batch Senior Analyst + email ---
   var morningReportBtn = document.getElementById('morning-report-btn');
   var morningReportProgress = document.getElementById('morning-report-progress');
@@ -4013,9 +4138,20 @@
     }
 
     // Build email
-    morningReportProgress.innerHTML = '<div>\u2709\uFE0F Building email report\u2026</div><div class="mrp-bar" style="width:95%"></div>';
+    morningReportProgress.innerHTML = '<div>\u2709\uFE0F Building email report\u2026</div><div class="mrp-bar" style="width:90%"></div>';
 
     var emailHTML = buildMorningReportEmail(results, failed);
+
+    // Generate AI Portfolio Brief
+    if (results.length > 0) {
+      morningReportProgress.innerHTML = '<div>\uD83E\uDDE0 Victoria Park is preparing your portfolio brief\u2026</div><div class="mrp-bar" style="width:93%"></div>';
+      try {
+        var brief = await NewsAI.generatePortfolioBrief(results);
+        showPortfolioBrief(brief, results);
+      } catch (e) {
+        console.warn('Portfolio brief failed:', e.message);
+      }
+    }
 
     // Open mailto or copy to clipboard
     morningReportProgress.innerHTML = '<div>\u2705 Report ready for ' + results.length + ' stocks' + (failed.length ? ' (' + failed.length + ' failed)' : '') + '</div><div class="mrp-bar" style="width:100%"></div>';
@@ -4364,12 +4500,9 @@
       return s;
     }
 
-    function buildContext() {
-      var sym = selectedSymbol;
-      if (!sym || !cache[sym]) return 'No stock is currently selected.';
-      var c = cache[sym];
+    function buildStockContext(sym, c, isSelected) {
       var parts = [];
-      parts.push('=== CURRENTLY VIEWING: ' + sym + ' ===');
+      parts.push('=== ' + (isSelected ? 'CURRENTLY VIEWING: ' : '') + sym + ' ===');
 
       // Quote
       if (c.quote) {
@@ -4429,10 +4562,19 @@
       // Verdict
       if (c.verdictResult) {
         var v = c.verdictResult;
-        parts.push('SENIOR ANALYST VERDICT: Rating=' + (v.rating || 'N/A') + ' | Target=$' + (v.targetPrice || 'N/A') + ' | Upside=' + (v.upsidePercent || 'N/A') + '%');
-        if (v.thesis) parts.push('Thesis: ' + v.thesis);
-        if (v.risks && v.risks.length) parts.push('Risks: ' + v.risks.join('; '));
-        if (v.catalysts && v.catalysts.length) parts.push('Catalysts: ' + v.catalysts.join('; '));
+        var vParts = ['SENIOR ANALYST VERDICT: ' + (v.verdict || 'N/A')];
+        if (v.confidence) vParts.push('Confidence=' + v.confidence);
+        if (v.priceTarget) vParts.push('Target=' + v.priceTarget);
+        if (v.upside) vParts.push('Upside=' + v.upside + '%');
+        if (v.intrinsicValue != null) vParts.push('DCF=' + v.intrinsicValue);
+        parts.push(vParts.join(' | '));
+        if (v.summary) parts.push('Thesis: ' + v.summary);
+        if (v.verdictReason) parts.push('Rationale: ' + v.verdictReason);
+        if (v.thinkingProcess) parts.push('Analysis: ' + v.thinkingProcess);
+        if (v.bull && v.bull.length) parts.push('Bull: ' + v.bull.join('; '));
+        if (v.bear && v.bear.length) parts.push('Bear: ' + v.bear.join('; '));
+        if (v.catalysts && v.catalysts.length) parts.push('Catalysts: ' + v.catalysts.map(function(ct) { return typeof ct === 'string' ? ct : ct.event + ' (' + ct.timeline + ', ' + ct.impact + ')'; }).join('; '));
+        if (v.risks && v.risks.length) parts.push('Risks: ' + v.risks.map(function(r) { return typeof r === 'string' ? r : r.risk + ' (' + r.severity + ')'; }).join('; '));
       }
 
       // Earnings
@@ -4485,24 +4627,38 @@
       // AV Overview
       if (c.avOverview) {
         var ov = c.avOverview;
-        if (ov.Description) parts.push('DESCRIPTION: ' + ov.Description.substring(0, 300));
+        if (ov.Description && isSelected) parts.push('DESCRIPTION: ' + ov.Description.substring(0, 300));
         if (ov.PERatio) parts.push('AV P/E: ' + ov.PERatio + ' | PEG: ' + (ov.PEGRatio || 'N/A') + ' | P/B: ' + (ov.PriceToBookRatio || 'N/A'));
       }
 
-      // All tracked stocks
-      if (trackedStocks && trackedStocks.length > 1) {
+      return parts.join('\n');
+    }
+
+    function buildContext() {
+      var sections = [];
+      var sym = selectedSymbol;
+
+      // Selected stock gets full context
+      if (sym && cache[sym]) {
+        sections.push(buildStockContext(sym, cache[sym], true));
+      }
+
+      // All other tracked stocks get condensed but complete AI context
+      if (trackedStocks && trackedStocks.length) {
         var others = trackedStocks.filter(function(s) { return s.symbol !== sym; });
         if (others.length) {
-          var watchlist = others.map(function(s) {
+          sections.push('\n=== OTHER PORTFOLIO STOCKS ===');
+          others.forEach(function(s) {
             var oc = cache[s.symbol];
-            if (oc && oc.quote) return s.symbol + ': $' + oc.quote.c + ' (' + (oc.quote.dp != null ? oc.quote.dp.toFixed(2) + '%' : 'N/A') + ')';
-            return s.symbol;
+            if (oc) {
+              sections.push(buildStockContext(s.symbol, oc, false));
+            }
           });
-          parts.push('OTHER WATCHLIST STOCKS: ' + watchlist.join(' | '));
         }
       }
 
-      return parts.join('\n');
+      if (!sections.length) return 'No stock is currently selected and no stocks are tracked.';
+      return sections.join('\n\n');
     }
 
     function fmtBigNum(n) {
@@ -4515,16 +4671,17 @@
       return n.toFixed(2);
     }
 
-    var SYSTEM_PROMPT = 'You are an elite wealth advisor and senior equity analyst with 25+ years of experience at top-tier investment banks. You have FULL ACCESS to all the stock data loaded on the user\'s dashboard (provided below as context).\n\n'
+    var SYSTEM_PROMPT = 'You are an elite wealth advisor and senior equity analyst with 25+ years of experience at top-tier investment banks. You have FULL ACCESS to all stock data for every stock in the user\'s portfolio (provided below as context).\n\n'
       + 'YOUR APPROACH:\n'
       + '1. THINK DEEPLY before responding — consider multiple angles, risks, and opportunities\n'
       + '2. ASK CLARIFYING QUESTIONS when the user\'s intent is ambiguous (e.g., time horizon, risk tolerance, portfolio size)\n'
-      + '3. REFERENCE THE DATA — always cite specific numbers from the dashboard context when making points\n'
+      + '3. REFERENCE THE DATA — always cite specific numbers from the dashboard context when making points. You have AI analysis, Senior Analyst verdicts, fundamentals, technicals, and macro data for ALL portfolio stocks.\n'
       + '4. BE ACTIONABLE — give specific recommendations, not vague advice\n'
       + '5. CONSIDER RISKS — always mention downside risks and what could go wrong\n'
-      + '6. USE STRUCTURED RESPONSES — use bullet points, sections, and clear formatting\n\n'
+      + '6. USE STRUCTURED RESPONSES — use bullet points, sections, and clear formatting\n'
+      + '7. CROSS-STOCK ANALYSIS — compare stocks in the portfolio, identify correlations, concentration risks, and relative value\n\n'
       + 'PERSONALITY: Confident but not arrogant. Direct but thoughtful. You explain complex concepts simply. You push back when the user has a bad idea.\n\n'
-      + 'IMPORTANT: You can ONLY analyze data that is loaded on the dashboard. If data is missing (e.g., no AI verdict yet), mention that the user should load it first. Do NOT make up data.\n\n'
+      + 'IMPORTANT: You can analyze ALL stocks in the portfolio — not just the currently selected one. If AI analysis or verdicts are missing for a stock, mention that the user should run the analysis first. Do NOT make up data.\n\n'
       + 'Format responses with **bold** for emphasis and `code` for numbers/tickers. Use line breaks for readability.';
 
     chatForm.addEventListener('submit', async function(e) {
