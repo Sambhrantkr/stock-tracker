@@ -197,31 +197,45 @@ const NewsAI = (() => {
   }
 
   /**
-   * Smart fetch: routes to Gemini for LIGHT tasks when Gemini key is available,
-   * falls back to Groq otherwise. MID/DEEP always go to Groq.
+   * Smart fetch: routes LIGHT+MID to Gemini, DEEP to Groq (best reasoning).
+   * Falls back to Groq if Gemini fails.
    */
   async function groqFetch(messages, maxTokens, temperature, opts) {
     var useModel = (opts && opts.model) || MODEL_LIGHT;
-    // Route LIGHT-tier tasks to Gemini when key is available, with Groq fallback
-    if (useModel === MODEL_LIGHT && hasGeminiKey()) {
+    var isDeep = (useModel === MODEL_DEEP);
+    // DEEP tier → Groq 70b for best reasoning quality (with Gemini fallback)
+    if (isDeep) {
       try {
-        console.log('[AI] Routing to Gemini (LIGHT tier)');
+        console.log('[AI] Routing to Groq DEEP (70b)');
+        return await _groqEnqueue(function() {
+          return _groqFetchDirect(messages, maxTokens, temperature, opts);
+        }, useModel);
+      } catch (e) {
+        if (hasGeminiKey() && e.message && e.message.toLowerCase().indexOf('rate') !== -1) {
+          console.warn('[AI] Groq DEEP rate limited, falling back to Gemini');
+          return _geminiEnqueue(function() {
+            return _geminiFetchDirect(messages, maxTokens, temperature);
+          });
+        }
+        throw e;
+      }
+    }
+    // LIGHT + MID → Gemini when available, Groq fallback
+    if (hasGeminiKey()) {
+      var tierLabel = useModel === MODEL_MID ? 'MID' : 'LIGHT';
+      try {
+        console.log('[AI] Routing to Gemini (' + tierLabel + ' tier)');
         return await _geminiEnqueue(function() {
           return _geminiFetchDirect(messages, maxTokens, temperature);
         });
       } catch (e) {
-        // If Gemini fails, fall back to Groq LIGHT — log prominently
-        console.warn('[AI] Gemini FAILED (' + e.message + '), falling back to Groq LIGHT');
+        console.warn('[AI] Gemini FAILED (' + e.message + '), falling back to Groq ' + tierLabel);
         return _groqEnqueue(function() {
           return _groqFetchDirect(messages, maxTokens, temperature, opts);
         }, useModel);
       }
     }
-    if (useModel === MODEL_LIGHT) {
-      console.log('[AI] Routing to Groq LIGHT (no Gemini key)');
-    } else {
-      console.log('[AI] Routing to Groq (' + useModel.split('/').pop() + ')');
-    }
+    console.log('[AI] Routing to Groq (' + useModel.split('/').pop() + ') — no Gemini key');
     return _groqEnqueue(function() {
       return _groqFetchDirect(messages, maxTokens, temperature, opts);
     }, useModel);
@@ -1136,9 +1150,57 @@ const NewsAI = (() => {
    */
   async function chatAdvisor(messages, opts) {
     var useModel = (opts && opts.model) || MODEL_DEEP;
+    // Route to Gemini when available, with Groq fallback
+    if (hasGeminiKey()) {
+      try {
+        console.log('[AI] Chat routing to Gemini');
+        return await _geminiEnqueue(function() {
+          return _geminiChatDirect(messages, (opts && opts.maxTokens) || 2048, 0.5);
+        });
+      } catch (e) {
+        console.warn('[AI] Gemini chat FAILED (' + e.message + '), falling back to Groq');
+        return _groqEnqueue(function() {
+          return _chatAdvisorDirect(messages, opts);
+        }, useModel);
+      }
+    }
     return _groqEnqueue(function() {
       return _chatAdvisorDirect(messages, opts);
     }, useModel);
+  }
+
+  /** Gemini chat — returns plain text (not JSON) */
+  async function _geminiChatDirect(messages, maxTokens, temperature) {
+    var key = getGeminiKey();
+    if (!key) throw new Error('Gemini API key not set.');
+    var url = GEMINI_URL + GEMINI_MODEL + ':generateContent?key=' + key;
+
+    var systemInstruction = null;
+    var contents = [];
+    for (var i = 0; i < messages.length; i++) {
+      var m = messages[i];
+      if (m.role === 'system') {
+        systemInstruction = { parts: [{ text: m.content }] };
+      } else {
+        contents.push({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] });
+      }
+    }
+
+    var body = {
+      contents: contents,
+      generationConfig: { temperature: temperature || 0.5, maxOutputTokens: maxTokens || 2048 }
+    };
+    if (systemInstruction) body.systemInstruction = systemInstruction;
+
+    var res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 429) throw new Error('Gemini rate limited.');
+    if (!res.ok) throw new Error('Gemini error: HTTP ' + res.status);
+    var data = await res.json();
+    try { return data.candidates[0].content.parts[0].text.trim(); } catch(e) { throw new Error('Gemini empty response.'); }
   }
 
   async function _chatAdvisorDirect(messages, opts) {

@@ -920,7 +920,7 @@
     // ── PHASE 3: Senior Analyst deep analysis ──
     if (isSelected) btn.textContent = 'Deep analysis\u2026';
     var inventory = buildDataInventory(c);
-    if (isSelected) contentEl.innerHTML = '<div class="tile-loading">\uD83C\uDFAF Senior analyst performing deep analysis on ' + symbol + '...<br><span style="font-size:0.65rem;color:var(--muted);">Groq 70B model \u2022 ' + inventory.summary + '</span></div>';
+    if (isSelected) contentEl.innerHTML = '<div class="tile-loading">\uD83C\uDFAF Senior analyst performing deep analysis on ' + symbol + '...<br><span style="font-size:0.65rem;color:var(--muted);">Groq 70b' + (NewsAI.hasGeminiKey() ? ' (Gemini fallback)' : '') + ' \u2022 ' + inventory.summary + '</span></div>';
     try {
       c.verdictResult = await NewsAI.generateVerdict(
         symbol,
