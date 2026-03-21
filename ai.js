@@ -210,14 +210,18 @@ const NewsAI = (() => {
           return _geminiFetchDirect(messages, maxTokens, temperature);
         });
       } catch (e) {
-        // If Gemini fails (rate limit, network, etc.), fall back to Groq LIGHT
-        console.warn('[AI] Gemini failed, falling back to Groq:', e.message);
+        // If Gemini fails, fall back to Groq LIGHT — log prominently
+        console.warn('[AI] Gemini FAILED (' + e.message + '), falling back to Groq LIGHT');
         return _groqEnqueue(function() {
           return _groqFetchDirect(messages, maxTokens, temperature, opts);
         }, useModel);
       }
     }
-    console.log('[AI] Routing to Groq (' + useModel.split('/').pop() + ')');
+    if (useModel === MODEL_LIGHT) {
+      console.log('[AI] Routing to Groq LIGHT (no Gemini key)');
+    } else {
+      console.log('[AI] Routing to Groq (' + useModel.split('/').pop() + ')');
+    }
     return _groqEnqueue(function() {
       return _groqFetchDirect(messages, maxTokens, temperature, opts);
     }, useModel);
@@ -1193,5 +1197,19 @@ const NewsAI = (() => {
     throw new Error('Failed after retries. Try again.');
   }
 
-  return { getKey, setKey, hasKey, getGeminiKey, setGeminiKey, hasGeminiKey, analyzeNews, analyzeAnalysts, analyzeMacro, summarizeTranscript, generateVerdict, analyzeFundamentals, analyzeTechnicals, chatAdvisor };
+  /** Quick diagnostic — call NewsAI.testGemini() from browser console */
+  async function testGemini() {
+    if (!hasGeminiKey()) return 'No Gemini key saved. hasGeminiKey()=' + hasGeminiKey() + ', key length=' + getGeminiKey().length;
+    try {
+      var result = await _geminiFetchDirect(
+        [{ role: 'user', content: 'Respond with exactly this JSON: {"status":"ok","provider":"gemini"}' }],
+        100, 0.1
+      );
+      return 'Gemini OK: ' + JSON.stringify(result);
+    } catch (e) {
+      return 'Gemini FAILED: ' + e.message;
+    }
+  }
+
+  return { getKey, setKey, hasKey, getGeminiKey, setGeminiKey, hasGeminiKey, testGemini, analyzeNews, analyzeAnalysts, analyzeMacro, summarizeTranscript, generateVerdict, analyzeFundamentals, analyzeTechnicals, chatAdvisor };
 })();
