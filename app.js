@@ -3953,7 +3953,43 @@
         continue;
       }
 
-      // 2. Run AI sub-analyses if missing (sequential with delays)
+      // 2a. Load on-demand data tiles (technicals, cash flow, balance sheet, etc.)
+      morningReportProgress.innerHTML = '<div>\uD83D\uDCC0 ' + step + ' — ' + sym + ': Loading detailed financials\u2026</div><div class="mrp-bar" style="width:' + pct + '%"></div>';
+
+      try {
+        if (AlphaAPI.hasKey()) {
+          if (!c.rsiData || !c.rsiData.length) {
+            try { await loadTechnicalsData(sym); } catch(e) {}
+            c = cache[sym];
+          }
+          if (!c.cashFlowData || !c.cashFlowData.length) {
+            try { await loadCashFlowData(sym); } catch(e) {}
+            c = cache[sym];
+          }
+          if (!c.balanceSheetData || !c.balanceSheetData.length) {
+            try { await loadBalanceSheetData(sym); } catch(e) {}
+            c = cache[sym];
+          }
+          if (!c.incomeData || !c.incomeData.length) {
+            try { await loadRevenueData(sym); } catch(e) {}
+            c = cache[sym];
+          }
+        }
+        if (StockAPI.hasKey()) {
+          if (!c.epsEstimates || !c.epsEstimates.quarterly || !c.epsEstimates.quarterly.length) {
+            try { await loadEPSEstimates(sym); } catch(e) {}
+            c = cache[sym];
+          }
+          if (!c.peers || !c.peers.length) {
+            try { await loadPeerData(sym); } catch(e) {}
+            c = cache[sym];
+          }
+        }
+      } catch (e) {
+        console.warn('Morning report data loading error for ' + sym + ':', e.message);
+      }
+
+      // 2b. Run AI sub-analyses if missing (sequential with delays)
       morningReportProgress.innerHTML = '<div>\uD83E\uDD16 ' + step + ' — ' + sym + ': Running AI analyses\u2026</div><div class="mrp-bar" style="width:' + pct + '%"></div>';
 
       try {
@@ -4100,6 +4136,7 @@
       if (v.intrinsicValue != null) h += '<p style="margin:0 0 6px;font-size:12px;color:#94a3b8;"><strong>DCF Intrinsic Value:</strong> $' + parseFloat(v.intrinsicValue).toFixed(2) + (v.dcfAssumptions ? ' — ' + v.dcfAssumptions : '') + '</p>';
       if (v.bull && v.bull.length) h += '<p style="margin:0 0 4px;font-size:12px;color:#4ade80;"><strong>Bull:</strong> ' + v.bull.join(' | ') + '</p>';
       if (v.bear && v.bear.length) h += '<p style="margin:0 0 4px;font-size:12px;color:#f87171;"><strong>Bear:</strong> ' + v.bear.join(' | ') + '</p>';
+      if (v.catalysts && v.catalysts.length) h += '<p style="margin:0 0 4px;font-size:12px;color:#60a5fa;"><strong>Catalysts:</strong> ' + v.catalysts.map(function(c) { return c.event + ' (' + c.timeline + ', ' + c.impact + ')'; }).join(' | ') + '</p>';
       if (v.dataQuality) h += '<p style="margin:0;font-size:11px;color:#64748b;">' + v.dataQuality + '</p>';
       h += '</div>';
     });
@@ -4132,6 +4169,7 @@
       if (v.verdictReason) body += '  Rationale: ' + v.verdictReason + '\n';
       if (v.bull && v.bull.length) body += '  Bull: ' + v.bull.join(' | ') + '\n';
       if (v.bear && v.bear.length) body += '  Bear: ' + v.bear.join(' | ') + '\n';
+      if (v.catalysts && v.catalysts.length) body += '  Catalysts: ' + v.catalysts.map(function(c) { return c.event + ' (' + c.timeline + ')'; }).join(' | ') + '\n';
       body += '\n';
     });
     body += '---------------------------------------\n';
@@ -4167,18 +4205,26 @@
     }
 
     tryCopyToClipboard().catch(function() {}).finally(function() {
-      // Build mailto URL — keep body short to avoid URL length limits
+      // Build mailto URL
       var email = localStorage.getItem('report_email') || '';
       var mailtoBody = body;
-      // Total mailto URL must stay under ~2000 chars after encoding
-      // encodeURIComponent roughly triples length for special chars
-      var maxBodyChars = 600;
-      if (mailtoBody.length > maxBodyChars) {
-        mailtoBody = mailtoBody.substring(0, maxBodyChars) + '\n\n[Full report on clipboard — paste into email body]';
+      // Modern email clients handle long mailto URLs (Outlook/Thunderbird ~32K, Gmail ~8K)
+      // Encode first, then check total URL length
+      var encodedBody = encodeURIComponent(mailtoBody);
+      var encodedSubject = encodeURIComponent(subject);
+      var baseUrl = 'mailto:' + encodeURIComponent(email) + '?subject=' + encodedSubject + '&body=';
+      var totalLen = baseUrl.length + encodedBody.length;
+
+      // If total URL exceeds 15000 chars, progressively trim the body
+      // This keeps the full report for most portfolios (5-8 stocks)
+      if (totalLen > 15000) {
+        // Try trimming to fit — remove bull/bear lines first by shortening body
+        var maxRawChars = Math.floor(15000 / 3); // rough ratio for encodeURIComponent
+        mailtoBody = body.substring(0, maxRawChars) + '\n\n--- Report trimmed for email. Full report on clipboard — paste into email body. ---';
+        encodedBody = encodeURIComponent(mailtoBody);
       }
-      var mailto = 'mailto:' + encodeURIComponent(email)
-        + '?subject=' + encodeURIComponent(subject)
-        + '&body=' + encodeURIComponent(mailtoBody);
+
+      var mailto = baseUrl + encodedBody;
 
       // Use location.href for mailto — more reliable than window.open
       // window.open is blocked as a popup after async operations

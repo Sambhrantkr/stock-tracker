@@ -255,14 +255,20 @@ const NewsAI = (() => {
     sysMsg += '  Methods: (a) P/E vs peers and history, (b) EV/EBITDA vs peers, (c) P/S for growth stocks, (d) DCF if cash flow data available.\n';
     sysMsg += '  DCF approach: Use latest FCF as base. Estimate 5Y growth from historical trends. WACC=10%. Terminal growth=2.5-3%. Shares = Market Cap / Price.\n';
     sysMsg += '  Your price target MUST come from one of these methods. State which method you used.\n\n';
-    sysMsg += 'STEP 5 — CATALYST & RISK MAPPING\n';
+    sysMsg += 'STEP 5 — CATALYST & RISK MAPPING (NEWS-DRIVEN)\n';
     sysMsg += '  Ask: What specific events in the next 12 months could move this stock 10%+ in either direction?\n';
-    sysMsg += '  Look at: Earnings dates, product launches, regulatory events, macro shifts, insider activity.\n\n';
+    sysMsg += '  Look at: Earnings dates, product launches, regulatory events, macro shifts, insider activity.\n';
+    sysMsg += '  CRITICAL: Pay close attention to the NEWS AI triggers and MACRO AI factors in Section 14.\n';
+    sysMsg += '  For companies with new business lines (e.g. robotaxis, AI, energy, cloud), news about launches, regulatory approvals,\n';
+    sysMsg += '  partnerships, or competitive threats can have OUTSIZED valuation impact — often more than traditional metrics.\n';
+    sysMsg += '  If news reveals a major catalyst (product launch, new market entry, regulatory win/loss), it MUST be reflected in your price target and thesis.\n\n';
     sysMsg += 'STEP 6 — SIGNAL CONVERGENCE\n';
     sysMsg += '  Ask: Are technicals, sentiment, insiders, and analysts all pointing the same direction? Or is there divergence?\n';
     sysMsg += '  Convergence = higher confidence. Divergence = lower confidence. Note any contradictions explicitly.\n\n';
     sysMsg += 'STEP 7 — FINAL SYNTHESIS\n';
-    sysMsg += '  Weigh all 7 steps. Assign verdict and confidence. Write your thesis as if presenting to the investment committee.\n';
+    sysMsg += '  Weigh all 8 steps. Assign verdict and confidence. Write your thesis as if presenting to the investment committee.\n';
+    sysMsg += '  You MUST integrate news catalysts and macro factors into your thesis — do not treat them as secondary.\n';
+    sysMsg += '  For innovation-driven companies, news about new products/services can justify premium valuations or signal risks.\n';
     sysMsg += '  STRONG BUY/SELL require HIGH confidence + clear catalysts + valuation support. Use sparingly.\n\n';
     sysMsg += 'STEP 8 — EARNINGS ESTIMATE MOMENTUM\n';
     sysMsg += '  Ask: Are analyst EPS estimates rising or falling over recent quarters? Rising estimates = positive earnings revision cycle. Falling = negative.\n';
@@ -547,8 +553,18 @@ const NewsAI = (() => {
     }
     if (allData.articles && allData.articles.length) {
       b += '  Recent Headlines (' + allData.articles.length + '):\n';
-      allData.articles.slice(0, 5).forEach(function(a) {
-        b += '    - ' + a.title + ' (' + a.publisher + ', ' + a.date + ')\n';
+      allData.articles.slice(0, 10).forEach(function(a) {
+        b += '    - ' + a.title + ' (' + a.publisher + ', ' + a.date + ')';
+        if (a.summary) b += '\n      ' + a.summary.substring(0, 200);
+        b += '\n';
+      });
+    }
+    if (allData.macroArticles && allData.macroArticles.length) {
+      b += '  Macro/Economy Headlines (' + allData.macroArticles.length + '):\n';
+      allData.macroArticles.slice(0, 8).forEach(function(a) {
+        b += '    - ' + a.title + ' (' + a.publisher + ', ' + a.date + ')';
+        if (a.summary) b += '\n      ' + a.summary.substring(0, 200);
+        b += '\n';
       });
     }
     b += '└──────────────────────────────────────────────────────────────┘\n\n';
@@ -565,16 +581,51 @@ const NewsAI = (() => {
     // ── SECTION 14: AI ANALYSIS SUMMARIES ──
     b += '┌─ SECTION 14: AI ANALYSIS SUMMARIES (from sub-analysts) ──────┐\n';
     if (allData.aiResult) {
-      b += '  NEWS AI:         Outlook=' + (allData.aiResult.longTermOutlook || 'N/A') + '\n';
-      b += '                   ' + (allData.aiResult.summary || '') + '\n';
+      var nai = allData.aiResult;
+      b += '  NEWS AI:         Outlook=' + (nai.longTermOutlook || 'N/A') + '\n';
+      b += '                   ' + (nai.summary || '') + '\n';
+      if (nai.outlookReason) b += '    Outlook Reason: ' + nai.outlookReason + '\n';
+      if (nai.valuationImpact && nai.valuationImpact.length) {
+        b += '    Valuation Impact Factors:\n';
+        nai.valuationImpact.forEach(function(vi) {
+          b += '      ' + (vi.direction || '?') + ' ' + (vi.factor || '') + ': ' + (vi.detail || '') + '\n';
+        });
+      }
+      if (nai.keyTriggers && nai.keyTriggers.length) {
+        b += '    Key News Triggers:\n';
+        nai.keyTriggers.forEach(function(kt) {
+          b += '      [' + (kt.impact || '?') + '] ' + (kt.event || '') + ': ' + (kt.explanation || '') + '\n';
+        });
+      }
     }
     if (allData.analystAIResult) {
-      b += '  ANALYST AI:      Consensus=' + (allData.analystAIResult.consensus || 'N/A') + '\n';
-      b += '                   ' + (allData.analystAIResult.summary || '') + '\n';
+      var aai = allData.analystAIResult;
+      b += '  ANALYST AI:      Consensus=' + (aai.consensus || 'N/A') + '\n';
+      b += '                   ' + (aai.summary || '') + '\n';
+      if (aai.keyTakeaways && aai.keyTakeaways.length) {
+        b += '    Key Takeaways:\n';
+        aai.keyTakeaways.forEach(function(kt) {
+          b += '      - ' + (kt.point || '') + ': ' + (kt.detail || '') + '\n';
+        });
+      }
     }
     if (allData.macroAIResult) {
-      b += '  MACRO AI:        Impact=' + (allData.macroAIResult.impact || 'N/A') + '\n';
-      b += '                   ' + (allData.macroAIResult.summary || '') + '\n';
+      var mai = allData.macroAIResult;
+      b += '  MACRO AI:        Impact=' + (mai.impact || 'N/A') + '\n';
+      b += '                   ' + (mai.summary || '') + '\n';
+      if (mai.impactReason) b += '    Impact Reason: ' + mai.impactReason + '\n';
+      if (mai.macroFactors && mai.macroFactors.length) {
+        b += '    Macro Factors:\n';
+        mai.macroFactors.forEach(function(mf) {
+          b += '      ' + (mf.direction || '?') + ' ' + (mf.factor || '') + ': ' + (mf.detail || '') + '\n';
+        });
+      }
+      if (mai.risks && mai.risks.length) {
+        b += '    Macro Risks:\n';
+        mai.risks.forEach(function(r) {
+          b += '      [' + (r.severity || '?') + '] ' + (r.risk || '') + ': ' + (r.detail || '') + '\n';
+        });
+      }
     }
     if (allData.transcriptAIResult) {
       b += '  EARNINGS AI:     Sentiment=' + (allData.transcriptAIResult.sentiment || 'N/A') + '\n';
@@ -647,6 +698,13 @@ const NewsAI = (() => {
     userMsg += 'EPS ESTIMATE MOMENTUM:\n';
     userMsg += '- Check Section 13B for EPS estimate revisions. Are estimates rising or falling across quarters?\n';
     userMsg += '- Cross-reference with Section 5 earnings beat/miss rate. Rising estimates + beats = strong. Falling + misses = weak.\n\n';
+    userMsg += 'NEWS & MACRO CATALYST INSTRUCTIONS:\n';
+    userMsg += '- Section 12 contains recent company news headlines AND macro/economy headlines. READ THEM CAREFULLY.\n';
+    userMsg += '- Section 14 contains detailed AI analysis of news and macro factors including valuation impact factors, key triggers, macro tailwinds/headwinds, and risks.\n';
+    userMsg += '- For companies with emerging business lines (robotaxis, AI, energy, new products), news about launches, regulatory approvals, or competitive moves can have OUTSIZED impact on valuation.\n';
+    userMsg += '- Your catalysts list MUST include any major news-driven catalysts from Sections 12 and 14.\n';
+    userMsg += '- Your summary and thinkingProcess MUST reference specific news items that could materially affect the stock.\n';
+    userMsg += '- If macro factors are headwinds or tailwinds, explain how they affect your price target.\n\n';
     userMsg += b;
     userMsg += 'Respond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n';
     userMsg += '{\n';
