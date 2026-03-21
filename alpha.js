@@ -25,6 +25,18 @@ var AlphaAPI = (function() {
     return y + '-' + m + '-' + d;
   }
 
+  // One-time migration: clear old UTC-based call log so counter resets properly
+  (function migrateCallLog() {
+    try {
+      var raw = localStorage.getItem('av_call_log');
+      if (!raw) return;
+      var log = JSON.parse(raw);
+      if (log && log.date && log.date !== getESTDate()) {
+        localStorage.removeItem('av_call_log');
+      }
+    } catch(e) {}
+  })();
+
   function getAVCallLog() {
     var raw = (typeof Auth !== 'undefined' && Auth.isLoggedIn()) ? Auth.getItem('av_call_log') : localStorage.getItem('av_call_log');
     if (!raw) return { date: '', count: 0 };

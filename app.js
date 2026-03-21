@@ -272,8 +272,25 @@
       if (!btn || btn.disabled) return;
       var base = btn.textContent.replace(/\s*\(\d+\)$/, '');
       btn.textContent = base + ' (' + remaining + ')';
-      if (remaining <= 0) { btn.disabled = true; btn.title = 'Alpha Vantage daily limit reached (25/day)'; }
+      if (remaining <= 0) { btn.disabled = true; btn.title = 'Alpha Vantage daily limit reached (25/day). Resets midnight EST.'; }
     });
+    // Show/update the AV budget bar in settings if it exists
+    var budgetEl = document.getElementById('av-budget-display');
+    if (budgetEl) {
+      var total = 25;
+      var used = total - remaining;
+      budgetEl.innerHTML = 'AV calls: ' + remaining + '/' + total + ' remaining (resets midnight EST)'
+        + ' <button id="av-reset-btn" style="font-size:0.6rem;padding:0.1rem 0.4rem;margin-left:0.3rem;cursor:pointer;background:none;border:1px solid var(--border);color:var(--muted);border-radius:3px;">Reset</button>';
+      var resetBtn = document.getElementById('av-reset-btn');
+      if (resetBtn) {
+        resetBtn.onclick = function() {
+          if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.removeItem('av_call_log');
+          else localStorage.removeItem('av_call_log');
+          updateAVBudgetIndicator();
+          if (selectedSymbol) renderDetail(selectedSymbol);
+        };
+      }
+    }
   }
   // --- Tile drag-and-drop reordering ---
   var DEFAULT_TILE_ORDER = [
