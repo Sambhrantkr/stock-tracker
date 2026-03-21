@@ -11,6 +11,7 @@
   var groqKey2Input = document.getElementById('groq-key2-input');
   var geminiKeyInput = document.getElementById('gemini-key-input');
   var avKeyInput = document.getElementById('av-key-input');
+  var avKey2Input = document.getElementById('av-key2-input');
   var reportEmailInput = document.getElementById('report-email-input');
   var saveKeyBtn = document.getElementById('save-key-btn');
   var settingsBtn = document.getElementById('settings-btn');
@@ -90,6 +91,8 @@
     if (gk2 && gk2.indexOf('\u2022') !== 0) NewsAI.setKey2(gk2);
     if (gmk && gmk.indexOf('\u2022') !== 0) NewsAI.setGeminiKey(gmk);
     if (ak && ak.indexOf('\u2022') !== 0) AlphaAPI.setKey(ak);
+    var ak2 = avKey2Input ? avKey2Input.value.trim() : '';
+    if (ak2 && ak2.indexOf('\u2022') !== 0) AlphaAPI.setKey2(ak2);
     if (em) localStorage.setItem('report_email', em);
     else if (em === '') localStorage.removeItem('report_email');
     if (StockAPI.hasKey()) banner.classList.add('hidden');
@@ -98,6 +101,7 @@
     if (groqKey2Input) groqKey2Input.value = NewsAI.hasKey2() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     if (geminiKeyInput) geminiKeyInput.value = NewsAI.hasGeminiKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     avKeyInput.value = AlphaAPI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
+    if (avKey2Input) avKey2Input.value = AlphaAPI.hasKey2() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     if (reportEmailInput) reportEmailInput.value = localStorage.getItem('report_email') || '';
     if (StockAPI.hasKey()) refreshAll();
   });
@@ -108,6 +112,7 @@
     if (groqKey2Input) groqKey2Input.value = NewsAI.hasKey2() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     if (geminiKeyInput) geminiKeyInput.value = NewsAI.hasGeminiKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     avKeyInput.value = AlphaAPI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
+    if (avKey2Input) avKey2Input.value = AlphaAPI.hasKey2() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     if (reportEmailInput) reportEmailInput.value = localStorage.getItem('report_email') || '';
   });
   var aboutBtn = document.getElementById('about-btn');
@@ -131,6 +136,7 @@
   if (groqKey2Input) groqKey2Input.addEventListener('focus', function() { if (groqKey2Input.value.indexOf('\u2022') === 0) groqKey2Input.value = ''; });
   if (geminiKeyInput) geminiKeyInput.addEventListener('focus', function() { if (geminiKeyInput.value.indexOf('\u2022') === 0) geminiKeyInput.value = ''; });
   avKeyInput.addEventListener('focus', function() { if (avKeyInput.value.indexOf('\u2022') === 0) avKeyInput.value = ''; });
+  if (avKey2Input) avKey2Input.addEventListener('focus', function() { if (avKey2Input.value.indexOf('\u2022') === 0) avKey2Input.value = ''; });
   function saveTracked() { userSet('tracked_stocks', trackedStocks); }
 
   // --- Search ---
@@ -295,14 +301,14 @@
       if (!btn || btn.disabled) return;
       var base = btn.textContent.replace(/\s*\(\d+\)$/, '');
       btn.textContent = base + ' (' + remaining + ')';
-      if (remaining <= 0) { btn.disabled = true; btn.title = 'Alpha Vantage daily limit reached (25/day). Resets midnight EST.'; }
+      if (remaining <= 0) { btn.disabled = true; btn.title = 'Alpha Vantage daily limit reached. Resets midnight EST.'; }
     });
     // Show/update the AV budget bar in settings if it exists
     var budgetEl = document.getElementById('av-budget-display');
     if (budgetEl) {
-      var total = 25;
+      var total = AlphaAPI.hasKey2() ? 50 : 25;
       var used = total - remaining;
-      budgetEl.innerHTML = 'AV calls: ' + remaining + '/' + total + ' remaining (resets midnight EST)'
+      budgetEl.innerHTML = 'AV calls: ' + remaining + '/' + total + ' remaining' + (AlphaAPI.hasKey2() ? ' (2 keys)' : '') + ' (resets midnight EST)'
         + ' <button id="av-reset-btn" style="font-size:0.6rem;padding:0.1rem 0.4rem;margin-left:0.3rem;cursor:pointer;background:none;border:1px solid var(--border);color:var(--muted);border-radius:3px;">Reset</button>';
       var resetBtn = document.getElementById('av-reset-btn');
       if (resetBtn) {
@@ -4217,6 +4223,9 @@
     }
     if (AlphaAPI.hasKey()) {
       avKeyInput.value = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
+    }
+    if (AlphaAPI.hasKey2() && avKey2Input) {
+      avKey2Input.value = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
     }
     requestNotificationPermission();
     renderSidebar();

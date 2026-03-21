@@ -10,8 +10,13 @@ var AlphaAPI = (function() {
   function setKey(key) { if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('av_api_key', key.trim()); else localStorage.setItem('av_api_key', key.trim()); }
   function hasKey() { return getKey().length > 0; }
 
-  // --- AV daily call tracking (25 calls/day free tier, resets midnight EST) ---
-  var AV_DAILY_LIMIT = 25;
+  // ── Second AV key (different account, doubles daily limit) ──
+  function getKey2() { return (typeof Auth !== 'undefined' && Auth.isLoggedIn()) ? (Auth.getItem('av_api_key_2') || '') : (localStorage.getItem('av_api_key_2') || ''); }
+  function setKey2(key) { if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('av_api_key_2', key.trim()); else localStorage.setItem('av_api_key_2', key.trim()); }
+  function hasKey2() { return getKey2().length > 0; }
+
+  // --- AV daily call tracking — per-key (25 calls/day each, resets midnight EST) ---
+  var AV_DAILY_LIMIT_PER_KEY = 25;
 
   function getESTDate() {
     // Alpha Vantage resets at midnight US Eastern Time
@@ -25,50 +30,95 @@ var AlphaAPI = (function() {
     return y + '-' + m + '-' + d;
   }
 
-  // One-time migration: clear old UTC-based call log so counter resets properly
+  // One-time migration: clear old single-counter call log
   (function migrateCallLog() {
     try {
       var raw = localStorage.getItem('av_call_log');
       if (!raw) return;
       var log = JSON.parse(raw);
-      if (log && log.date && log.date !== getESTDate()) {
+      // Old format had a single {date, count} — remove it
+      if (log && log.date && !log.key1) {
         localStorage.removeItem('av_call_log');
       }
     } catch(e) {}
   })();
 
-  function getAVCallLog() {
+  function _getCallLog() {
     var raw = (typeof Auth !== 'undefined' && Auth.isLoggedIn()) ? Auth.getItem('av_call_log') : localStorage.getItem('av_call_log');
-    if (!raw) return { date: '', count: 0 };
-    try { var d = JSON.parse(raw); return d && d.date ? d : { date: '', count: 0 }; }
-    catch(e) { return { date: '', count: 0 }; }
+    if (!raw) return { date: '', key1: 0, key2: 0 };
+    try { var d = JSON.parse(raw); return d && d.date ? { date: d.date, key1: d.key1 || 0, key2: d.key2 || 0 } : { date: '', key1: 0, key2: 0 }; }
+    catch(e) { return { date: '', key1: 0, key2: 0 }; }
   }
-  function saveAVCallLog(log) {
+  function _saveCallLog(log) {
     var s = JSON.stringify(log);
     if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('av_call_log', s);
     else localStorage.setItem('av_call_log', s);
   }
-  function trackAVCall() {
+  function _todayLog() {
     var today = getESTDate();
-    var log = getAVCallLog();
-    if (log.date !== today) log = { date: today, count: 0 };
-    log.count++;
-    saveAVCallLog(log);
-    return log.count;
+    var log = _getCallLog();
+    if (log.date !== today) return { date: today, key1: 0, key2: 0 };
+    return log;
   }
+
+  /** Pick the active key: use key1 until exhausted, then key2 */
+  function _pickAVKey() {
+    var log = _todayLog();
+    if (log.key1 < AV_DAILY_LIMIT_PER_KEY) return 1;
+    if (hasKey2() && log.key2 < AV_DAILY_LIMIT_PER_KEY) return 2;
+    return 0; // both exhausted
+  }
+
+  function trackAVCall(keyNum) {
+    var log = _todayLog();
+    if (keyNum === 2) log.key2++;
+    else log.key1++;
+    _saveCallLog(log);
+  }
+
   function getAVCallsRemaining() {
-    var today = getESTDate();
-    var log = getAVCallLog();
-    if (log.date !== today) return AV_DAILY_LIMIT;
-    return Math.max(0, AV_DAILY_LIMIT - log.count);
+    var log = _todayLog();
+    var rem1 = Math.max(0, AV_DAILY_LIMIT_PER_KEY - log.key1);
+    var rem2 = hasKey2() ? Math.max(0, AV_DAILY_LIMIT_PER_KEY - log.key2) : 0;
+    return rem1 + rem2;
+  }
+
+  // ── Persistent localStorage cache for quarterly data (30-day TTL) ──
+  // Financial statements only change quarterly, so caching saves precious AV calls.
+  var AV_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+  function _cacheKey(symbol, fn) { return 'av_cache_' + symbol + '_' + fn; }
+
+  function _cacheGet(symbol, fn) {
+    try {
+      var raw = localStorage.getItem(_cacheKey(symbol, fn));
+      if (!raw) return null;
+      var entry = JSON.parse(raw);
+      if (!entry || !entry.ts || !entry.data) return null;
+      if (Date.now() - entry.ts > AV_CACHE_TTL_MS) {
+        localStorage.removeItem(_cacheKey(symbol, fn));
+        return null;
+      }
+      return entry.data;
+    } catch(e) { return null; }
+  }
+
+  function _cacheSet(symbol, fn, data) {
+    try {
+      localStorage.setItem(_cacheKey(symbol, fn), JSON.stringify({ ts: Date.now(), data: data }));
+    } catch(e) { /* storage full — ignore */ }
   }
 
   function avGet(params) {
-    if (getAVCallsRemaining() <= 0) {
-      return Promise.reject(new Error('Alpha Vantage daily limit reached (25/day). Resets tomorrow.'));
+    var keyNum = _pickAVKey();
+    if (keyNum === 0) {
+      var total = hasKey2() ? '50' : '25';
+      return Promise.reject(new Error('Alpha Vantage daily limit reached (' + total + '/day). Resets tomorrow.'));
     }
-    trackAVCall();
-    var url = BASE + '?' + params + '&apikey=' + getKey();
+    var apiKey = keyNum === 2 ? getKey2() : getKey();
+    trackAVCall(keyNum);
+    console.log('[AV] Using key ' + keyNum + ' (' + getAVCallsRemaining() + ' calls remaining)');
+    var url = BASE + '?' + params + '&apikey=' + apiKey;
     var controller = new AbortController();
     var timeoutId = setTimeout(function() { controller.abort(); }, 20000);
     return fetch(url, { signal: controller.signal }).then(function(res) {
@@ -105,10 +155,12 @@ var AlphaAPI = (function() {
    */
   async function getEarningsTranscript(symbol, quarter) {
     if (!hasKey()) return null;
+    var cached = _cacheGet(symbol, 'transcript_' + quarter);
+    if (cached) { console.log('[AV] Cache hit: transcript/' + symbol + '/' + quarter); return cached; }
     try {
       var data = await avGet('function=EARNINGS_CALL_TRANSCRIPT&symbol=' + encodeURIComponent(symbol) + '&quarter=' + encodeURIComponent(quarter));
       if (!data || !data.transcript || !data.transcript.length) return null;
-      return {
+      var result = {
         symbol: data.symbol || symbol,
         quarter: data.quarter || quarter,
         transcript: data.transcript.map(function(t) {
@@ -120,6 +172,8 @@ var AlphaAPI = (function() {
           };
         }),
       };
+      _cacheSet(symbol, 'transcript_' + quarter, result);
+      return result;
     } catch (e) {
       console.warn('AV transcript error:', e.message);
       return null;
@@ -200,9 +254,12 @@ var AlphaAPI = (function() {
    */
   async function getOverview(symbol) {
     if (!hasKey()) return null;
+    var cached = _cacheGet(symbol, 'overview');
+    if (cached) { console.log('[AV] Cache hit: overview/' + symbol); return cached; }
     try {
       var data = await avGet('function=OVERVIEW&symbol=' + encodeURIComponent(symbol));
       if (!data || !data.Symbol) return null;
+      _cacheSet(symbol, 'overview', data);
       return data;
     } catch (e) {
       console.warn('AV overview error:', e.message);
@@ -216,6 +273,8 @@ var AlphaAPI = (function() {
    */
   async function getIncomeStatement(symbol) {
     if (!hasKey()) return [];
+    var cached = _cacheGet(symbol, 'income');
+    if (cached) { console.log('[AV] Cache hit: income/' + symbol); return cached; }
     try {
       var data = await avGet('function=INCOME_STATEMENT&symbol=' + encodeURIComponent(symbol));
       if (!data) return [];
@@ -229,7 +288,7 @@ var AlphaAPI = (function() {
         isAnnual = true;
       }
       if (!reports || !reports.length) return [];
-      return reports.map(function(r) {
+      var result = reports.map(function(r) {
         return {
           date: r.fiscalDateEnding || '',
           revenue: r.totalRevenue && r.totalRevenue !== 'None' ? parseFloat(r.totalRevenue) : null,
@@ -239,6 +298,8 @@ var AlphaAPI = (function() {
           isAnnual: isAnnual,
         };
       });
+      _cacheSet(symbol, 'income', result);
+      return result;
     } catch (e) {
       console.warn('AV income statement error:', e.message);
       if (e.message && (e.message.indexOf('rate limit') !== -1 || e.message.indexOf('daily limit') !== -1)) throw e;
@@ -301,11 +362,13 @@ var AlphaAPI = (function() {
   /** Cash Flow Statement — quarterly, returns [{date, operatingCashFlow, capitalExpenditure, freeCashFlow, dividendPayout}] */
   async function getCashFlow(symbol) {
     if (!hasKey()) return [];
+    var cached = _cacheGet(symbol, 'cashflow');
+    if (cached) { console.log('[AV] Cache hit: cashflow/' + symbol); return cached; }
     try {
       var data = await avGet('function=CASH_FLOW&symbol=' + encodeURIComponent(symbol));
       var reports = data.quarterlyReports || data.annualReports || [];
       if (!reports || !reports.length) return [];
-      return reports.slice(0, 12).map(function(r) {
+      var result = reports.slice(0, 12).map(function(r) {
         var ocf = r.operatingCashflow && r.operatingCashflow !== 'None' ? parseFloat(r.operatingCashflow) : null;
         var capex = r.capitalExpenditures && r.capitalExpenditures !== 'None' ? parseFloat(r.capitalExpenditures) : null;
         var fcf = (ocf !== null && capex !== null) ? ocf - capex : null;
@@ -318,6 +381,8 @@ var AlphaAPI = (function() {
           netIncome: r.netIncome && r.netIncome !== 'None' ? parseFloat(r.netIncome) : null,
         };
       });
+      _cacheSet(symbol, 'cashflow', result);
+      return result;
     } catch (e) {
       console.warn('AV Cash Flow error:', e.message);
       if (e.message && (e.message.indexOf('rate limit') !== -1 || e.message.indexOf('daily limit') !== -1)) throw e;
@@ -328,11 +393,13 @@ var AlphaAPI = (function() {
   /** Balance Sheet — quarterly, returns [{date, totalAssets, totalLiabilities, totalDebt, cash, bookValue, sharesOutstanding}] */
   async function getBalanceSheet(symbol) {
     if (!hasKey()) return [];
+    var cached = _cacheGet(symbol, 'balancesheet');
+    if (cached) { console.log('[AV] Cache hit: balancesheet/' + symbol); return cached; }
     try {
       var data = await avGet('function=BALANCE_SHEET&symbol=' + encodeURIComponent(symbol));
       var reports = data.quarterlyReports || data.annualReports || [];
       if (!reports || !reports.length) return [];
-      return reports.slice(0, 8).map(function(r) {
+      var result = reports.slice(0, 8).map(function(r) {
         var assets = r.totalAssets && r.totalAssets !== 'None' ? parseFloat(r.totalAssets) : null;
         var liabilities = r.totalLiabilities && r.totalLiabilities !== 'None' ? parseFloat(r.totalLiabilities) : null;
         return {
@@ -345,6 +412,8 @@ var AlphaAPI = (function() {
           sharesOutstanding: r.commonStockSharesOutstanding && r.commonStockSharesOutstanding !== 'None' ? parseFloat(r.commonStockSharesOutstanding) : null,
         };
       });
+      _cacheSet(symbol, 'balancesheet', result);
+      return result;
     } catch (e) {
       console.warn('AV Balance Sheet error:', e.message);
       if (e.message && (e.message.indexOf('rate limit') !== -1 || e.message.indexOf('daily limit') !== -1)) throw e;
@@ -356,6 +425,9 @@ var AlphaAPI = (function() {
     getKey: getKey,
     setKey: setKey,
     hasKey: hasKey,
+    getKey2: getKey2,
+    setKey2: setKey2,
+    hasKey2: hasKey2,
     getAVCallsRemaining: getAVCallsRemaining,
     getEarningsTranscript: getEarningsTranscript,
     guessLatestQuarter: guessLatestQuarter,
