@@ -3577,6 +3577,46 @@
       try {
         await runMacroAnalysis(symbol);
       } catch (e) { console.warn('Auto AI macro error:', e.message); }
+      await delay(3000);
+    }
+    // Transcript / Earnings Call AI
+    c = cache[symbol];
+    if (c && !c.transcriptAIResult && NewsAI.hasKey()) {
+      var hasEarnings = c.earnings && c.earnings.length;
+      var hasArticles = c.articles && c.articles.length;
+      if (hasEarnings || hasArticles) {
+        try {
+          await runTranscriptSummary(symbol);
+        } catch (e) { console.warn('Auto AI transcript error:', e.message); }
+        await delay(3000);
+      }
+    }
+    // Technicals AI (loads RSI, MACD, SMA from AV then runs AI analysis)
+    c = cache[symbol];
+    if (c && AlphaAPI.hasKey() && !c.technicalsResult) {
+      try {
+        await loadTechnicalsData(symbol);
+      } catch (e) { console.warn('Auto technicals error:', e.message); }
+      await delay(3000);
+    }
+    // Fundamentals & Sentiment AI (loads AV overview + sentiment then runs AI)
+    c = cache[symbol];
+    if (c && !c.fundamentalsResult) {
+      try {
+        await loadFundamentalsData(symbol);
+      } catch (e) { console.warn('Auto fundamentals error:', e.message); }
+      await delay(3000);
+    }
+
+    // Auto-load peer comparison (after AI tiles to avoid Finnhub rate limit contention)
+    c = cache[symbol];
+    if (c && StockAPI.hasKey() && (!c.peers || !c.peers.length)) {
+      var s = trackedStocks.find(function(t) { return t.symbol === symbol; }) || {};
+      if (s.type !== 'ETF') {
+        try {
+          await loadPeerData(symbol);
+        } catch (e) { console.warn('Auto peers error:', e.message); }
+      }
     }
   }
 
