@@ -3525,11 +3525,6 @@
 
     if (selectedSymbol === symbol) renderDetail(symbol);
 
-    // Auto-run AI sequentially with delays to avoid Groq rate limits
-    if (NewsAI.hasKey() && cache[symbol]) {
-      autoRunAI(symbol);
-    }
-
     // Check price alerts after data refresh
     checkPriceAlerts();
 
@@ -3746,8 +3741,8 @@
   }
 
   function startAutoRefresh() {
-    if (refreshTimer) return;
-    refreshTimer = setInterval(refreshAll, 60000);
+    // Auto-refresh disabled — use Senior Analyst or Morning Report to refresh
+    // Individual tile buttons still work for manual refresh
   }
 
   function stopAutoRefresh() {
