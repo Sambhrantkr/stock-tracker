@@ -363,6 +363,11 @@
       }
     });
 
+    // Pull news tile out — it always goes last
+    var newsIdx = fullWidth.indexOf('tile-news');
+    var hasNews = newsIdx !== -1;
+    if (hasNews) fullWidth.splice(newsIdx, 1);
+
     // Now pack remaining tiles row by row
     var colsLeft = 3;
     while (mi < multiCol.length || si < singleCol.length || fullWidth.length) {
@@ -391,6 +396,8 @@
     }
     // Add any remaining full-width tiles at the end
     fullWidth.forEach(function(id) { packed.push(id); });
+    // News tile always goes last
+    if (hasNews) packed.push('tile-news');
 
     // Also add hidden tiles at the end (they won't display but need to stay in DOM)
     orderedIds.forEach(function(id) {
@@ -1041,21 +1048,23 @@
     var contentEl = document.getElementById('detail-technicals-content');
     var btn = document.getElementById('detail-technicals-btn');
     if (!AlphaAPI.hasKey() || !symbol) return;
-    btn.disabled = true; btn.textContent = 'Loading\u2026';
-    contentEl.innerHTML = '<div class="tile-loading">Fetching RSI...</div>';
+    if (symbol === selectedSymbol) {
+      btn.disabled = true; btn.textContent = 'Loading\u2026';
+      contentEl.innerHTML = '<div class="tile-loading">Fetching RSI...</div>';
+    }
     try {
       if (!cache[symbol]) cache[symbol] = {};
       var c = cache[symbol];
       c.rsiData = await AlphaAPI.getRSI(symbol);
-      contentEl.innerHTML = '<div class="tile-loading">Fetching MACD...</div>';
+      if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="tile-loading">Fetching MACD...</div>';
       c.macdData = await AlphaAPI.getMACD(symbol);
-      contentEl.innerHTML = '<div class="tile-loading">Fetching SMA 50...</div>';
+      if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="tile-loading">Fetching SMA 50...</div>';
       c.sma50Data = await AlphaAPI.getSMA(symbol, 50);
-      contentEl.innerHTML = '<div class="tile-loading">Fetching SMA 200...</div>';
+      if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="tile-loading">Fetching SMA 200...</div>';
       c.sma200Data = await AlphaAPI.getSMA(symbol, 200);
 
       if (NewsAI.hasKey()) {
-        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 AI analyzing technicals...</div>';
+        if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 AI analyzing technicals...</div>';
         c.technicalsResult = await NewsAI.analyzeTechnicals(
           symbol, c.profile ? c.profile.name : symbol,
           c.rsiData, c.macdData, c.sma50Data, c.sma200Data, c.quote
@@ -1063,9 +1072,9 @@
       }
       if (selectedSymbol === symbol) renderTechnicalsHTML(contentEl, c);
     } catch (e) {
-      contentEl.innerHTML = '<div class="error-msg">' + e.message + '</div>';
+      if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="error-msg">' + e.message + '</div>';
     }
-    btn.disabled = false; btn.textContent = 'Reload';
+    if (symbol === selectedSymbol) { btn.disabled = false; btn.textContent = 'Reload'; }
   }
 
   function renderTechnicalsHTML(el, c) {
@@ -1284,19 +1293,21 @@
     var contentEl = document.getElementById('detail-cashflow-content');
     var btn = document.getElementById('detail-cashflow-btn');
     if (!AlphaAPI.hasKey()) return;
-    btn.disabled = true; btn.textContent = 'Loading\u2026';
+    if (symbol === selectedSymbol) { btn.disabled = true; btn.textContent = 'Loading\u2026'; }
     try {
       if (!cache[symbol]) cache[symbol] = {};
       cache[symbol].cashFlowData = await AlphaAPI.getCashFlow(symbol);
-      if (!cache[symbol].cashFlowData || !cache[symbol].cashFlowData.length) {
-        contentEl.innerHTML = '<div class="tile-loading">No cash flow data available.</div>';
-      } else {
-        renderCashFlowHTML(contentEl, cache[symbol].cashFlowData);
+      if (symbol === selectedSymbol) {
+        if (!cache[symbol].cashFlowData || !cache[symbol].cashFlowData.length) {
+          contentEl.innerHTML = '<div class="tile-loading">No cash flow data available.</div>';
+        } else {
+          renderCashFlowHTML(contentEl, cache[symbol].cashFlowData);
+        }
       }
     } catch(e) {
-      contentEl.innerHTML = '<div class="error-msg">' + e.message + '</div>';
+      if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="error-msg">' + e.message + '</div>';
     }
-    btn.disabled = false; btn.textContent = 'Reload';
+    if (symbol === selectedSymbol) { btn.disabled = false; btn.textContent = 'Reload'; }
   }
 
   function renderCashFlowHTML(el, data) {
@@ -1392,19 +1403,21 @@
     var contentEl = document.getElementById('detail-balancesheet-content');
     var btn = document.getElementById('detail-balancesheet-btn');
     if (!AlphaAPI.hasKey()) return;
-    btn.disabled = true; btn.textContent = 'Loading\u2026';
+    if (symbol === selectedSymbol) { btn.disabled = true; btn.textContent = 'Loading\u2026'; }
     try {
       if (!cache[symbol]) cache[symbol] = {};
       cache[symbol].balanceSheetData = await AlphaAPI.getBalanceSheet(symbol);
-      if (!cache[symbol].balanceSheetData || !cache[symbol].balanceSheetData.length) {
-        contentEl.innerHTML = '<div class="tile-loading">No balance sheet data available.</div>';
-      } else {
-        renderBalanceSheetHTML(contentEl, cache[symbol].balanceSheetData, cache[symbol]);
+      if (symbol === selectedSymbol) {
+        if (!cache[symbol].balanceSheetData || !cache[symbol].balanceSheetData.length) {
+          contentEl.innerHTML = '<div class="tile-loading">No balance sheet data available.</div>';
+        } else {
+          renderBalanceSheetHTML(contentEl, cache[symbol].balanceSheetData, cache[symbol]);
+        }
       }
     } catch(e) {
-      contentEl.innerHTML = '<div class="error-msg">' + e.message + '</div>';
+      if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="error-msg">' + e.message + '</div>';
     }
-    btn.disabled = false; btn.textContent = 'Reload';
+    if (symbol === selectedSymbol) { btn.disabled = false; btn.textContent = 'Reload'; }
   }
 
   function renderBalanceSheetHTML(el, data, c) {
@@ -1578,8 +1591,10 @@
     var contentEl = document.getElementById('detail-revenue-content');
     var btn = document.getElementById('detail-revenue-btn');
     if (!AlphaAPI.hasKey() || !symbol) return;
-    btn.disabled = true; btn.textContent = 'Loading\u2026';
-    contentEl.innerHTML = '<div class="tile-loading">Fetching income statement...</div>';
+    if (symbol === selectedSymbol) {
+      btn.disabled = true; btn.textContent = 'Loading\u2026';
+      contentEl.innerHTML = '<div class="tile-loading">Fetching income statement...</div>';
+    }
     try {
       if (!cache[symbol]) cache[symbol] = {};
       var result = await AlphaAPI.getIncomeStatement(symbol);
@@ -1592,9 +1607,9 @@
         }
       }
     } catch (e) {
-      contentEl.innerHTML = '<div class="error-msg">' + e.message + '</div>';
+      if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="error-msg">' + e.message + '</div>';
     }
-    btn.disabled = false; btn.textContent = 'Reload';
+    if (symbol === selectedSymbol) { btn.disabled = false; btn.textContent = 'Reload'; }
   }
 
   function renderRevenueChart(el, data) {
@@ -1734,8 +1749,10 @@
     var contentEl = document.getElementById('detail-sec-content');
     var btn = document.getElementById('detail-sec-btn');
     if (!symbol) return;
-    btn.disabled = true; btn.textContent = 'Loading\u2026';
-    contentEl.innerHTML = '<div class="tile-loading">Fetching SEC filings...</div>';
+    if (symbol === selectedSymbol) {
+      btn.disabled = true; btn.textContent = 'Loading\u2026';
+      contentEl.innerHTML = '<div class="tile-loading">Fetching SEC filings...</div>';
+    }
     try {
       if (!cache[symbol]) cache[symbol] = {};
       cache[symbol].secFilings = await StockAPI.getSECFilings(symbol);
@@ -1747,9 +1764,9 @@
         }
       }
     } catch (e) {
-      contentEl.innerHTML = '<div class="error-msg">' + e.message + '</div>';
+      if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="error-msg">' + e.message + '</div>';
     }
-    btn.disabled = false; btn.textContent = 'Reload';
+    if (symbol === selectedSymbol) { btn.disabled = false; btn.textContent = 'Reload'; }
   }
 
   function renderSECHTML(el, filings) {
@@ -1826,8 +1843,10 @@
     var contentEl = document.getElementById('detail-fundamentals-content');
     var btn = document.getElementById('detail-fundamentals-btn');
     if (!symbol) return;
-    btn.disabled = true; btn.textContent = 'Loading\u2026';
-    contentEl.innerHTML = '<div class="tile-loading">Loading fundamentals data...</div>';
+    if (symbol === selectedSymbol) {
+      btn.disabled = true; btn.textContent = 'Loading\u2026';
+      contentEl.innerHTML = '<div class="tile-loading">Loading fundamentals data...</div>';
+    }
     try {
       if (!cache[symbol]) cache[symbol] = {};
       var c = cache[symbol];
@@ -1835,18 +1854,18 @@
       // Fetch AV data if key available
       if (AlphaAPI.hasKey()) {
         if (!c.avOverview) {
-          contentEl.innerHTML = '<div class="tile-loading">Fetching company overview (Alpha Vantage)...</div>';
+          if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="tile-loading">Fetching company overview (Alpha Vantage)...</div>';
           c.avOverview = await AlphaAPI.getOverview(symbol);
         }
         if (!c.avSentiment) {
-          contentEl.innerHTML = '<div class="tile-loading">Fetching news sentiment (Alpha Vantage)...</div>';
+          if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="tile-loading">Fetching news sentiment (Alpha Vantage)...</div>';
           c.avSentiment = await AlphaAPI.getNewsSentiment(symbol);
         }
       }
 
       // Run AI analysis if Groq key available
       if (NewsAI.hasKey()) {
-        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 AI analyzing fundamentals...</div>';
+        if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 AI analyzing fundamentals...</div>';
         c.fundamentalsResult = await NewsAI.analyzeFundamentals(
           symbol,
           c.profile ? c.profile.name : symbol,
@@ -1859,9 +1878,9 @@
 
       if (selectedSymbol === symbol) renderFundamentalsHTML(contentEl, c, symbol);
     } catch (e) {
-      contentEl.innerHTML = '<div class="error-msg">' + e.message + '</div>';
+      if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="error-msg">' + e.message + '</div>';
     }
-    btn.disabled = false; btn.textContent = 'Reload';
+    if (symbol === selectedSymbol) { btn.disabled = false; btn.textContent = 'Reload'; }
   }
 
   function renderFundamentalsHTML(el, c, symbol) {
@@ -2027,14 +2046,16 @@
     var contentEl = document.getElementById('detail-ai-content');
     var btn = document.getElementById('detail-ai-btn');
     if (!NewsAI.hasKey() || !cache[symbol] || !cache[symbol].articles || !cache[symbol].articles.length) return;
-    btn.disabled = true; btn.textContent = 'Analyzing\u2026';
-    contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 Analyzing...</div>';
+    if (symbol === selectedSymbol) {
+      btn.disabled = true; btn.textContent = 'Analyzing\u2026';
+      contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 Analyzing...</div>';
+    }
     try {
       var c = cache[symbol];
       c.aiResult = await NewsAI.analyzeNews(symbol, c.profile ? c.profile.name : symbol, c.articles, c.financials || null);
-      renderAIHTML(contentEl, c.aiResult);
-    } catch (err) { contentEl.innerHTML = '<div class="error-msg">' + err.message + '</div>'; }
-    finally { btn.textContent = 'Re-analyze'; btn.disabled = false; }
+      if (symbol === selectedSymbol) renderAIHTML(contentEl, c.aiResult);
+    } catch (err) { if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="error-msg">' + err.message + '</div>'; }
+    finally { if (symbol === selectedSymbol) { btn.textContent = 'Re-analyze'; btn.disabled = false; } }
   }
   function renderAIHTML(el, ai) {
     var icon = ai.longTermOutlook === 'BULLISH' ? '\uD83D\uDCC8' : ai.longTermOutlook === 'BEARISH' ? '\uD83D\uDCC9' : '\u27A1\uFE0F';
@@ -2143,8 +2164,10 @@
     var btn = document.getElementById('detail-analyst-btn');
     var c = cache[symbol];
     if (!NewsAI.hasKey() || !c) return;
-    btn.disabled = true; btn.textContent = 'Summarizing\u2026';
-    contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 Analyzing analyst ratings...</div>';
+    if (symbol === selectedSymbol) {
+      btn.disabled = true; btn.textContent = 'Summarizing\u2026';
+      contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 Analyzing analyst ratings...</div>';
+    }
     try {
       c.analystAIResult = await NewsAI.analyzeAnalysts(
         symbol,
@@ -2153,9 +2176,9 @@
         c.upgrades || [],
         c.financials || null
       );
-      renderAnalystHTML(contentEl, c.analystAIResult, c.upgrades || [], symbol);
-    } catch (err) { contentEl.innerHTML = '<div class="error-msg">' + err.message + '</div>'; }
-    finally { btn.textContent = 'Re-summarize'; btn.disabled = false; }
+      if (symbol === selectedSymbol) renderAnalystHTML(contentEl, c.analystAIResult, c.upgrades || [], symbol);
+    } catch (err) { if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="error-msg">' + err.message + '</div>'; }
+    finally { if (symbol === selectedSymbol) { btn.textContent = 'Re-summarize'; btn.disabled = false; } }
   }
 
   function renderAnalystHTML(el, ai, upgrades, symbol) {
@@ -2254,8 +2277,10 @@
     var btn = document.getElementById('detail-macro-btn');
     var c = cache[symbol];
     if (!NewsAI.hasKey() || !c || !c.macroArticles || !c.macroArticles.length) return;
-    btn.disabled = true; btn.textContent = 'Analyzing\u2026';
-    contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 Analyzing macro impact on ' + symbol + '...</div>';
+    if (symbol === selectedSymbol) {
+      btn.disabled = true; btn.textContent = 'Analyzing\u2026';
+      contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 Analyzing macro impact on ' + symbol + '...</div>';
+    }
     try {
       var sector = (c.profile && c.profile.sector) || '';
       c.macroAIResult = await NewsAI.analyzeMacro(
@@ -2265,9 +2290,9 @@
         c.financials || null,
         sector
       );
-      renderMacroHTML(contentEl, c.macroAIResult, c.macroArticles);
-    } catch (err) { contentEl.innerHTML = '<div class="error-msg">' + err.message + '</div>'; }
-    finally { btn.textContent = 'Re-analyze'; btn.disabled = false; }
+      if (symbol === selectedSymbol) renderMacroHTML(contentEl, c.macroAIResult, c.macroArticles);
+    } catch (err) { if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="error-msg">' + err.message + '</div>'; }
+    finally { if (symbol === selectedSymbol) { btn.textContent = 'Re-analyze'; btn.disabled = false; } }
   }
 
   function renderMacroHTML(el, ai, articles) {
@@ -2360,13 +2385,15 @@
     var btn = document.getElementById('detail-transcript-btn');
     var c = cache[symbol];
     if (!NewsAI.hasKey() || !c) return;
-    btn.disabled = true; btn.textContent = 'Loading\u2026';
-    contentEl.innerHTML = '<div class="tile-loading">\uD83C\uDFA4 Loading earnings call data...</div>';
+    if (symbol === selectedSymbol) {
+      btn.disabled = true; btn.textContent = 'Loading\u2026';
+      contentEl.innerHTML = '<div class="tile-loading">\uD83C\uDFA4 Loading earnings call data...</div>';
+    }
     try {
       // Try Alpha Vantage transcript first
       if (AlphaAPI.hasKey() && !c.avTranscript) {
         var quarter = AlphaAPI.guessLatestQuarter(c.earnings);
-        contentEl.innerHTML = '<div class="tile-loading">\uD83C\uDFA4 Fetching transcript for ' + quarter + '...</div>';
+        if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="tile-loading">\uD83C\uDFA4 Fetching transcript for ' + quarter + '...</div>';
         c.avTranscript = await AlphaAPI.getEarningsTranscript(symbol, quarter);
         // If that quarter returned nothing, try the previous quarter
         if (!c.avTranscript) {
@@ -2376,13 +2403,15 @@
             var prevY = parseInt(parts[1]);
             if (prevQ < 1) { prevQ = 4; prevY--; }
             var prevQuarter = prevY + 'Q' + prevQ;
-            contentEl.innerHTML = '<div class="tile-loading">\uD83C\uDFA4 Trying ' + prevQuarter + '...</div>';
+            if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="tile-loading">\uD83C\uDFA4 Trying ' + prevQuarter + '...</div>';
             c.avTranscript = await AlphaAPI.getEarningsTranscript(symbol, prevQuarter);
           }
         }
       }
-      btn.textContent = 'Summarizing\u2026';
-      contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 AI is summarizing...</div>';
+      if (symbol === selectedSymbol) {
+        btn.textContent = 'Summarizing\u2026';
+        contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 AI is summarizing...</div>';
+      }
       // Use AV transcript if available, otherwise fall back to earnings + news
       if (c.avTranscript && c.avTranscript.transcript && c.avTranscript.transcript.length) {
         c.transcriptAIResult = await NewsAI.summarizeTranscript(
@@ -2405,9 +2434,9 @@
       }
       // Store the earnings period this transcript was based on
       c.transcriptCachedPeriod = (c.earnings && c.earnings.length) ? c.earnings[0].period : null;
-      renderTranscriptHTML(contentEl, c.transcriptAIResult, c.earnings, symbol, c.avTranscript);
-    } catch (err) { contentEl.innerHTML = '<div class="error-msg">' + err.message + '</div>'; }
-    finally { btn.textContent = 'Re-summarize'; btn.disabled = false; }
+      if (symbol === selectedSymbol) renderTranscriptHTML(contentEl, c.transcriptAIResult, c.earnings, symbol, c.avTranscript);
+    } catch (err) { if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="error-msg">' + err.message + '</div>'; }
+    finally { if (symbol === selectedSymbol) { btn.textContent = 'Re-summarize'; btn.disabled = false; } }
   }
 
   function renderTranscriptHTML(el, ai, earnings, symbol, avTranscript) {
@@ -2493,20 +2522,24 @@
     var contentEl = document.getElementById('detail-peers-content');
     var btn = document.getElementById('detail-peers-btn');
     if (!StockAPI.hasKey() || !symbol) return;
-    btn.disabled = true; btn.textContent = 'Loading\u2026';
-    contentEl.innerHTML = '<div class="tile-loading">Fetching peer list...</div>';
+    if (symbol === selectedSymbol) {
+      btn.disabled = true; btn.textContent = 'Loading\u2026';
+      contentEl.innerHTML = '<div class="tile-loading">Fetching peer list...</div>';
+    }
     try {
       if (!cache[symbol]) cache[symbol] = {};
       var peerSymbols = await StockAPI.getPeers(symbol);
       if (!peerSymbols || !peerSymbols.length) {
-        contentEl.innerHTML = '<div class="tile-loading">No peers found for ' + symbol + '.</div>';
-        btn.disabled = false; btn.textContent = 'Load Peers';
+        if (symbol === selectedSymbol) {
+          contentEl.innerHTML = '<div class="tile-loading">No peers found for ' + symbol + '.</div>';
+          btn.disabled = false; btn.textContent = 'Load Peers';
+        }
         return;
       }
       var peers = [];
       for (var i = 0; i < peerSymbols.length; i++) {
         var ps = peerSymbols[i];
-        contentEl.innerHTML = '<div class="tile-loading">Loading ' + ps + ' (' + (i + 1) + '/' + peerSymbols.length + ')...</div>';
+        if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="tile-loading">Loading ' + ps + ' (' + (i + 1) + '/' + peerSymbols.length + ')...</div>';
         try {
           var pQuote = await StockAPI.getQuote(ps);
           var pFin = await StockAPI.getBasicFinancials(ps);
@@ -2521,9 +2554,9 @@
       cache[symbol].peers = peers;
       if (selectedSymbol === symbol) renderPeersTable(contentEl, symbol, cache[symbol]);
     } catch (e) {
-      contentEl.innerHTML = '<div class="error-msg">Failed to load peers: ' + e.message + '</div>';
+      if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="error-msg">Failed to load peers: ' + e.message + '</div>';
     }
-    btn.disabled = false; btn.textContent = 'Reload Peers';
+    if (symbol === selectedSymbol) { btn.disabled = false; btn.textContent = 'Reload Peers'; }
   }
 
   function renderPeersTable(el, symbol, c) {
@@ -2802,20 +2835,24 @@
     var contentEl = document.getElementById('detail-eps-estimates-content');
     var btn = document.getElementById('detail-eps-estimates-btn');
     if (!StockAPI.hasKey()) return;
-    btn.disabled = true; btn.textContent = 'Loading\u2026';
-    contentEl.innerHTML = '<div class="tile-loading">Fetching EPS estimates...</div>';
+    if (symbol === selectedSymbol) {
+      btn.disabled = true; btn.textContent = 'Loading\u2026';
+      contentEl.innerHTML = '<div class="tile-loading">Fetching EPS estimates...</div>';
+    }
     try {
       if (!cache[symbol]) cache[symbol] = {};
       cache[symbol].epsEstimates = await StockAPI.getEPSEstimates(symbol);
-      if (!cache[symbol].epsEstimates || !cache[symbol].epsEstimates.quarterly || !cache[symbol].epsEstimates.quarterly.length) {
-        contentEl.innerHTML = '<div class="tile-loading">No EPS estimate data available for ' + symbol + '.</div>';
-      } else {
-        renderEPSEstimatesHTML(contentEl, cache[symbol].epsEstimates);
+      if (symbol === selectedSymbol) {
+        if (!cache[symbol].epsEstimates || !cache[symbol].epsEstimates.quarterly || !cache[symbol].epsEstimates.quarterly.length) {
+          contentEl.innerHTML = '<div class="tile-loading">No EPS estimate data available for ' + symbol + '.</div>';
+        } else {
+          renderEPSEstimatesHTML(contentEl, cache[symbol].epsEstimates);
+        }
       }
     } catch(e) {
-      contentEl.innerHTML = '<div class="error-msg">' + e.message + '</div>';
+      if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="error-msg">' + e.message + '</div>';
     }
-    btn.disabled = false; btn.textContent = 'Reload';
+    if (symbol === selectedSymbol) { btn.disabled = false; btn.textContent = 'Reload'; }
   }
 
   function renderEPSEstimatesHTML(el, data) {
