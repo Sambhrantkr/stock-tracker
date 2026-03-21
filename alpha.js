@@ -10,8 +10,21 @@ var AlphaAPI = (function() {
   function setKey(key) { if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('av_api_key', key.trim()); else localStorage.setItem('av_api_key', key.trim()); }
   function hasKey() { return getKey().length > 0; }
 
-  // --- AV daily call tracking (25 calls/day free tier) ---
+  // --- AV daily call tracking (25 calls/day free tier, resets midnight EST) ---
   var AV_DAILY_LIMIT = 25;
+
+  function getESTDate() {
+    // Alpha Vantage resets at midnight US Eastern Time
+    var now = new Date();
+    // toLocaleString with timeZone gives us the EST/EDT date
+    var estStr = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
+    var estDate = new Date(estStr);
+    var y = estDate.getFullYear();
+    var m = String(estDate.getMonth() + 1).padStart(2, '0');
+    var d = String(estDate.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + d;
+  }
+
   function getAVCallLog() {
     var raw = (typeof Auth !== 'undefined' && Auth.isLoggedIn()) ? Auth.getItem('av_call_log') : localStorage.getItem('av_call_log');
     if (!raw) return { date: '', count: 0 };
@@ -24,7 +37,7 @@ var AlphaAPI = (function() {
     else localStorage.setItem('av_call_log', s);
   }
   function trackAVCall() {
-    var today = new Date().toISOString().slice(0, 10);
+    var today = getESTDate();
     var log = getAVCallLog();
     if (log.date !== today) log = { date: today, count: 0 };
     log.count++;
@@ -32,7 +45,7 @@ var AlphaAPI = (function() {
     return log.count;
   }
   function getAVCallsRemaining() {
-    var today = new Date().toISOString().slice(0, 10);
+    var today = getESTDate();
     var log = getAVCallLog();
     if (log.date !== today) return AV_DAILY_LIMIT;
     return Math.max(0, AV_DAILY_LIMIT - log.count);

@@ -241,7 +241,6 @@
       function() { renderDetailDividends(symbol, c, s); },
       function() { renderDetailFundamentals(symbol, c, s); },
       function() { renderDetailInsider(symbol, c, s); },
-      function() { renderDetailSEC(symbol, c, s); },
       function() { renderDetailAI(symbol, c); },
       function() { renderDetailAnalyst(symbol, c); },
       function() { renderDetailMacro(symbol, c); },
@@ -282,7 +281,7 @@
     'tile-kpis','tile-pe','tile-revenue',
     'tile-about-company','tile-dividends',
     'tile-earnings','tile-insider',
-    'tile-technicals','tile-sec',
+    'tile-technicals',
     'tile-cashflow','tile-alerts',
     'tile-balancesheet','tile-ai',
     'tile-sector-strength','tile-val-scorecard','tile-eps-estimates',
@@ -561,7 +560,6 @@
     'tile-earnings': '📅 Earnings & EPS Surprise',
     'tile-insider': '🕵️ Insider Trading',
     'tile-technicals': '📐 Technical Indicators',
-    'tile-sec': '📋 SEC Filings',
     'tile-cashflow': '💵 Cash Flow Analysis',
     'tile-alerts': '🔔 Price Alerts',
     'tile-balancesheet': '🏦 Balance Sheet',
@@ -750,7 +748,6 @@
     if (c.rsiData && c.rsiData.length) available.push('RSI');
     if (c.macdData && c.macdData.length) available.push('MACD');
     if (c.sma50Data && c.sma50Data.length) available.push('SMA');
-    if (c.secFilings && c.secFilings.length) available.push('SEC Filings');
     if (c.peers && c.peers.length) available.push('Peers (' + c.peers.length + ')');
     if (c.cashFlowData && c.cashFlowData.length) available.push('Cash Flow');
     if (c.balanceSheetData && c.balanceSheetData.length) available.push('Balance Sheet');
@@ -828,13 +825,6 @@
     if (AlphaAPI.hasKey() && (!c.incomeData || !c.incomeData.length)) {
       progress('\uD83D\uDCB0 Loading revenue & income data...');
       try { await loadRevenueData(symbol); } catch(e) { console.warn('Revenue:', e.message); }
-      c = cache[symbol];
-    }
-
-    // SEC filings
-    if (!c.secFilings || !c.secFilings.length) {
-      progress('\uD83D\uDCCB Loading SEC filings...');
-      try { await loadSECFilings(symbol); } catch(e) { console.warn('SEC filings:', e.message); }
       c = cache[symbol];
     }
 
@@ -1823,65 +1813,6 @@
     });
     h += '</tbody></table>';
     if (trades.length > 15) h += '<div style="font-size:0.62rem;color:var(--muted);margin-top:0.3rem;">Showing 15 of ' + trades.length + ' transactions.</div>';
-    el.innerHTML = h;
-  }
-
-  // --- SEC Filings ---
-  function renderDetailSEC(symbol, c, s) {
-    var tile = document.getElementById('tile-sec');
-    var contentEl = document.getElementById('detail-sec-content');
-    var btn = document.getElementById('detail-sec-btn');
-    if (!tile || !contentEl || !btn) return;
-    if (s && s.type === 'ETF') { tile.style.display = 'none'; return; }
-    tile.style.display = '';
-    btn.onclick = function() { loadSECFilings(symbol); };
-
-    if (c.secFilings && c.secFilings.length) {
-      renderSECHTML(contentEl, c.secFilings);
-      btn.disabled = false; btn.textContent = 'Reload';
-      return;
-    }
-    btn.disabled = false; btn.textContent = 'Load Filings';
-    contentEl.innerHTML = '<div class="tile-loading">Click Load Filings to fetch latest 10-K, 10-Q, 8-K from SEC EDGAR.</div>';
-  }
-
-  async function loadSECFilings(symbol) {
-    var contentEl = document.getElementById('detail-sec-content');
-    var btn = document.getElementById('detail-sec-btn');
-    if (!symbol) return;
-    if (symbol === selectedSymbol) {
-      btn.disabled = true; btn.textContent = 'Loading\u2026';
-      contentEl.innerHTML = '<div class="tile-loading">Fetching SEC filings...</div>';
-    }
-    try {
-      if (!cache[symbol]) cache[symbol] = {};
-      cache[symbol].secFilings = await StockAPI.getSECFilings(symbol);
-      if (selectedSymbol === symbol) {
-        if (!cache[symbol].secFilings || !cache[symbol].secFilings.length) {
-          contentEl.innerHTML = '<div class="tile-loading">No SEC filings found for ' + symbol + '. Try a US-listed stock.</div>';
-        } else {
-          renderSECHTML(contentEl, cache[symbol].secFilings);
-        }
-      }
-    } catch (e) {
-      if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="error-msg">' + e.message + '</div>';
-    }
-    if (symbol === selectedSymbol) { btn.disabled = false; btn.textContent = 'Reload'; }
-  }
-
-  function renderSECHTML(el, filings) {
-    var h = '';
-    filings.forEach(function(f) {
-      var typeClass = 'type-' + f.type.replace(/-/g, '');
-      h += '<a class="sec-filing-item" href="' + f.url + '" target="_blank" rel="noopener">';
-      h += '<span class="sec-filing-type ' + typeClass + '">' + f.type + '</span>';
-      h += '<div style="flex:1;min-width:0;"><div class="sec-filing-title">' + f.title + '</div>';
-      if (f.summary) h += '<div style="font-size:0.62rem;color:var(--muted);margin-top:0.15rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + f.summary + '</div>';
-      h += '</div>';
-      h += '<span class="sec-filing-date">' + f.date + '</span>';
-      h += '</a>';
-    });
-    h += '<div style="font-size:0.58rem;color:var(--muted);margin-top:0.4rem;">Click any filing to view on SEC EDGAR.</div>';
     el.innerHTML = h;
   }
 
@@ -3606,6 +3537,28 @@
         await loadFundamentalsData(symbol);
       } catch (e) { console.warn('Auto fundamentals error:', e.message); }
       await delay(3000);
+    }
+
+    // Revenue & Income (AV call)
+    c = cache[symbol];
+    if (c && AlphaAPI.hasKey() && (!c.incomeData || !c.incomeData.length)) {
+      try {
+        await loadRevenueData(symbol);
+      } catch (e) { console.warn('Auto revenue error:', e.message); }
+    }
+    // Cash Flow (AV call)
+    c = cache[symbol];
+    if (c && AlphaAPI.hasKey() && (!c.cashFlowData || !c.cashFlowData.length)) {
+      try {
+        await loadCashFlowData(symbol);
+      } catch (e) { console.warn('Auto cash flow error:', e.message); }
+    }
+    // Balance Sheet (AV call)
+    c = cache[symbol];
+    if (c && AlphaAPI.hasKey() && (!c.balanceSheetData || !c.balanceSheetData.length)) {
+      try {
+        await loadBalanceSheetData(symbol);
+      } catch (e) { console.warn('Auto balance sheet error:', e.message); }
     }
 
     // Auto-load peer comparison (after AI tiles to avoid Finnhub rate limit contention)

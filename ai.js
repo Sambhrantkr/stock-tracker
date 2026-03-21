@@ -551,18 +551,9 @@ const NewsAI = (() => {
     }
     b += '└──────────────────────────────────────────────────────────────┘\n\n';
 
-    // ── SECTION 13: SEC FILINGS ──
-    if (allData.secFilings && allData.secFilings.length) {
-      b += '┌─ SECTION 13: RECENT SEC FILINGS ────────────────────────────┐\n';
-      allData.secFilings.slice(0, 5).forEach(function(fl) {
-        b += '  ' + fl.date + ' — ' + fl.type + ': ' + fl.title + '\n';
-      });
-      b += '└──────────────────────────────────────────────────────────────┘\n\n';
-    }
-
-    // ── SECTION 13B: EPS ESTIMATE REVISIONS ──
+    // ── SECTION 13: EPS ESTIMATE REVISIONS ──
     if (allData.epsEstimates && allData.epsEstimates.quarterly && allData.epsEstimates.quarterly.length) {
-      b += '┌─ SECTION 13B: EPS ESTIMATE REVISIONS ───────────────────────┐\n';
+      b += '┌─ SECTION 13: EPS ESTIMATE REVISIONS ───────────────────────┐\n';
       allData.epsEstimates.quarterly.forEach(function(e) {
         b += '  ' + e.period + ': Avg=' + (e.avg != null ? '$' + e.avg.toFixed(2) : 'N/A') + ' | High=' + (e.high != null ? '$' + e.high.toFixed(2) : 'N/A') + ' | Low=' + (e.low != null ? '$' + e.low.toFixed(2) : 'N/A') + ' | Analysts=' + (e.numAnalysts || 'N/A') + '\n';
       });
