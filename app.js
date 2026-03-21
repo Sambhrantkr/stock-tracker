@@ -192,8 +192,12 @@
   }
   function selectStock(symbol) {
     selectedSymbol = symbol;
+    activeAutoRunSymbol = null; // abort any running autoRunAI for the old stock
     emptyState.classList.add('hidden'); detailView.classList.remove('hidden');
     stockListEl.querySelectorAll('.stock-item').forEach(function(el) { el.classList.toggle('active', el.dataset.symbol === symbol); });
+    // Scroll main panel to top so user sees fresh header
+    var mainPanel = document.getElementById('main-panel');
+    if (mainPanel) mainPanel.scrollTop = 0;
     renderDetail(symbol);
     loadTradingViewWidget(symbol);
   }
@@ -226,6 +230,13 @@
   function renderDetail(symbol) {
     var c = cache[symbol] || {};
     var s = trackedStocks.find(function(t) { return t.symbol === symbol; }) || {};
+    // Clear all render-hidden flags before re-rendering (each render function will re-set as needed)
+    var grid = document.getElementById('tiles-grid');
+    if (grid) {
+      grid.querySelectorAll('.tile[data-render-hidden]').forEach(function(t) {
+        t.removeAttribute('data-render-hidden');
+      });
+    }
     var renders = [
       function() { renderDetailHeader(symbol, c, s); },
       function() { renderDetailVerdict(symbol, c); },
@@ -607,6 +618,8 @@
     DEFAULT_TILE_ORDER.forEach(function(id) {
       var el = document.getElementById(id);
       if (!el) return;
+      // Don't override tiles hidden by render functions (e.g. ETF-specific logic)
+      if (el.getAttribute('data-render-hidden') === 'true') return;
       if (hidden.indexOf(id) !== -1) {
         el.style.display = 'none';
       } else {
@@ -686,7 +699,7 @@
     var tile = document.getElementById('tile-about-company');
     var el = document.getElementById('detail-about-company');
     if (!tile || !el) return;
-    if (s && s.type === 'ETF') { tile.style.display = 'none'; return; }
+    if (s && s.type === 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
     var desc = (c.avOverview && c.avOverview.Description) ? c.avOverview.Description : null;
     var p = c.profile || {};
@@ -1008,6 +1021,27 @@
     el.innerHTML = h;
   }
 
+  function getForwardPE(c) {
+    // Best source: Alpha Vantage overview
+    if (c.avOverview && c.avOverview.ForwardPE && c.avOverview.ForwardPE !== 'None' && c.avOverview.ForwardPE !== '-') {
+      var avFwd = parseFloat(c.avOverview.ForwardPE);
+      if (avFwd > 0 && avFwd < 500) return avFwd.toFixed(1);
+    }
+    // Fallback: price / next year EPS estimate
+    if (c.quote && c.quote.price && c.epsEstimates && c.epsEstimates.quarterly) {
+      var estimates = c.epsEstimates.quarterly;
+      var totalEst = 0, count = 0;
+      for (var i = 0; i < Math.min(4, estimates.length); i++) {
+        if (estimates[i].avg != null) { totalEst += estimates[i].avg; count++; }
+      }
+      if (count >= 2 && totalEst > 0) {
+        var annualizedEst = totalEst * (4 / count);
+        return (c.quote.price / annualizedEst).toFixed(1);
+      }
+    }
+    return 'N/A';
+  }
+
   function renderDetailKPIs(symbol, c, s) {
     var el = document.getElementById('detail-kpis');
     var f = c.financials || {}, p = c.profile || {};
@@ -1015,7 +1049,7 @@
       {l:'52W High',v:f.week52High||'N/A'},{l:'52W Low',v:f.week52Low||'N/A'},{l:'Beta',v:f.beta||'N/A'},
       {l:'Div Yield',v:f.dividendYield||'N/A'},{l:'Sector',v:p.sector||'ETF'},{l:'Exchange',v:p.exchange||'N/A'},
     ] : [
-      {l:'Market Cap',v:fmtNum(p.marketCap)},{l:'P/E Ratio',v:f.peRatio||'N/A'},{l:'Fwd P/E',v:f.forwardPE||'N/A'},
+      {l:'Market Cap',v:fmtNum(p.marketCap)},{l:'P/E Ratio',v:f.peRatio||'N/A'},{l:'Fwd P/E',v:getForwardPE(c)},
       {l:'EPS',v:f.eps||'N/A'},{l:'Div Yield',v:f.dividendYield||'N/A'},{l:'52W High',v:f.week52High||'N/A'},
       {l:'52W Low',v:f.week52Low||'N/A'},{l:'Beta',v:f.beta||'N/A'},{l:'Sector',v:p.sector||'N/A'},
     ];
@@ -1057,7 +1091,7 @@
   // --- PE Chart ---
   function renderDetailPE(symbol, c, s) {
     var tile = document.getElementById('tile-pe');
-    if (s.type === 'ETF') { tile.style.display = 'none'; return; }
+    if (s.type === 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
     if (!c.financials || !c.financials.annualSeries) return;
     var peData = StockAPI.computePEHistory(c.financials.annualSeries);
@@ -1092,7 +1126,7 @@
     var contentEl = document.getElementById('detail-technicals-content');
     var btn = document.getElementById('detail-technicals-btn');
     if (!tile || !contentEl || !btn) return;
-    if (s && s.type === 'ETF') { tile.style.display = 'none'; return; }
+    if (s && s.type === 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
     btn.onclick = function() { loadTechnicalsData(symbol); };
 
@@ -1196,7 +1230,7 @@
   function renderDetailEarnings(symbol, c, s) {
     var tile = document.getElementById('tile-earnings');
     var el = document.getElementById('detail-earnings-content');
-    if (s.type === 'ETF') { tile.style.display = 'none'; return; }
+    if (s.type === 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
     if (!c.earnings) { el.innerHTML = '<div class="tile-loading">Loading earnings...</div>'; return; }
     if (!c.earnings.length) { el.innerHTML = '<div class="tile-loading">No earnings data available.</div>'; return; }
@@ -1338,7 +1372,7 @@
     var contentEl = document.getElementById('detail-cashflow-content');
     var btn = document.getElementById('detail-cashflow-btn');
     if (!tile || !contentEl || !btn) return;
-    if (s && s.type === 'ETF') { tile.style.display = 'none'; return; }
+    if (s && s.type === 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
     btn.onclick = function() { loadCashFlowData(symbol); };
 
@@ -1448,7 +1482,7 @@
     var contentEl = document.getElementById('detail-balancesheet-content');
     var btn = document.getElementById('detail-balancesheet-btn');
     if (!tile || !contentEl || !btn) return;
-    if (s && s.type === 'ETF') { tile.style.display = 'none'; return; }
+    if (s && s.type === 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
     btn.onclick = function() { loadBalanceSheetData(symbol); };
 
@@ -1551,7 +1585,7 @@
     var tile = document.getElementById('tile-dividends');
     var el = document.getElementById('detail-dividends-content');
     if (!tile || !el) return;
-    if (s && s.type === 'ETF') { tile.style.display = 'none'; return; }
+    if (s && s.type === 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
     var f = c.financials || {};
     var ov = c.avOverview || {};
@@ -1598,7 +1632,7 @@
   function renderDetailETFHoldings(symbol, c, s) {
     var tile = document.getElementById('tile-etf-holdings');
     var el = document.getElementById('detail-etf-holdings');
-    if (!s || s.type !== 'ETF') { tile.style.display = 'none'; return; }
+    if (!s || s.type !== 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
     if (!c.etfHoldings) { el.innerHTML = '<div class="tile-loading">Loading holdings...</div>'; return; }
     if (!c.etfHoldings.holdings || !c.etfHoldings.holdings.length) { el.innerHTML = '<div class="tile-loading">No holdings data available.</div>'; return; }
@@ -1635,7 +1669,7 @@
     var tile = document.getElementById('tile-revenue');
     var contentEl = document.getElementById('detail-revenue-content');
     var btn = document.getElementById('detail-revenue-btn');
-    if (s && s.type === 'ETF') { tile.style.display = 'none'; return; }
+    if (s && s.type === 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
     btn.onclick = function() { loadRevenueData(symbol); };
 
@@ -1784,7 +1818,7 @@
   function renderDetailInsider(symbol, c, s) {
     var tile = document.getElementById('tile-insider');
     var el = document.getElementById('detail-insider-content');
-    if (s && s.type === 'ETF') { tile.style.display = 'none'; return; }
+    if (s && s.type === 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
     if (!c.insiderTrades) { el.innerHTML = '<div class="tile-loading">Loading insider data...</div>'; return; }
     if (!c.insiderTrades.length) { el.innerHTML = '<div class="tile-loading">No insider transactions found.</div>'; return; }
@@ -1838,7 +1872,7 @@
     var contentEl = document.getElementById('detail-fundamentals-content');
     var btn = document.getElementById('detail-fundamentals-btn');
     var tile = document.getElementById('tile-fundamentals');
-    if (s && s.type === 'ETF') { tile.style.display = 'none'; return; }
+    if (s && s.type === 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
     btn.onclick = function() { loadFundamentalsData(symbol); };
 
@@ -2384,7 +2418,7 @@
     var btn = document.getElementById('detail-transcript-btn');
     var tile = document.getElementById('tile-transcript');
     var s = trackedStocks.find(function(t) { return t.symbol === symbol; }) || {};
-    if (s.type === 'ETF') { tile.style.display = 'none'; return; }
+    if (s.type === 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
     btn.onclick = function() { runTranscriptSummary(symbol); };
 
@@ -2553,7 +2587,7 @@
     var btn = document.getElementById('detail-peers-btn');
     var tile = document.getElementById('tile-peers');
     var s = trackedStocks.find(function(t) { return t.symbol === symbol; }) || {};
-    if (s.type === 'ETF') { tile.style.display = 'none'; return; }
+    if (s.type === 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
     btn.onclick = function() { loadPeerData(symbol); };
 
@@ -2622,7 +2656,7 @@
       price: myQ.price || null,
       change: myQ.changePct || null,
       pe: parseFloat(myFin.peRatio) || null,
-      fwdPE: parseFloat(myFin.forwardPE) || null,
+      fwdPE: parseFloat(getForwardPE(c)) || null,
       eps: parseFloat(myFin.eps) || null,
       mktCap: myP.marketCap || null,
       divYield: parseFloat(myFin.dividendYield) || null,
@@ -2642,7 +2676,7 @@
         price: q.price || null,
         change: q.changePct || null,
         pe: parseFloat(f.peRatio) || null,
-        fwdPE: parseFloat(f.forwardPE) || null,
+        fwdPE: parseFloat(f.peBasicExclExtraTTM) || null,
         eps: parseFloat(f.eps) || null,
         mktCap: pr.marketCap || null,
         divYield: parseFloat(f.dividendYield) || null,
@@ -2758,7 +2792,7 @@
     var tile = document.getElementById('tile-sector-strength');
     var el = document.getElementById('detail-sector-strength');
     if (!tile || !el) return;
-    if (s && s.type === 'ETF') { tile.style.display = 'none'; return; }
+    if (s && s.type === 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
     var f = c.financials || {};
     var q = c.quote || {};
@@ -2806,7 +2840,7 @@
     var tile = document.getElementById('tile-val-scorecard');
     var el = document.getElementById('detail-val-scorecard');
     if (!tile || !el) return;
-    if (s && s.type === 'ETF') { tile.style.display = 'none'; return; }
+    if (s && s.type === 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
     var f = c.financials || {};
     var av = c.avOverview || {};
@@ -2866,7 +2900,7 @@
     var contentEl = document.getElementById('detail-eps-estimates-content');
     var btn = document.getElementById('detail-eps-estimates-btn');
     if (!tile || !contentEl || !btn) return;
-    if (s && s.type === 'ETF') { tile.style.display = 'none'; return; }
+    if (s && s.type === 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
     btn.onclick = function() { loadEPSEstimates(symbol); };
     if (c.epsEstimates && c.epsEstimates.quarterly && c.epsEstimates.quarterly.length) {
@@ -2956,7 +2990,7 @@
     var tile = document.getElementById('tile-options-flow');
     var el = document.getElementById('detail-options-flow');
     if (!tile || !el) return;
-    if (s && s.type === 'ETF') { tile.style.display = 'none'; return; }
+    if (s && s.type === 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
     var f = c.financials || {};
     var q = c.quote || {};
@@ -3068,7 +3102,7 @@
     var tile = document.getElementById('tile-fair-value');
     var el = document.getElementById('detail-fair-value');
     if (!tile || !el) return;
-    if (s && s.type === 'ETF') { tile.style.display = 'none'; return; }
+    if (s && s.type === 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
     var f = c.financials || {};
     var q = c.quote || {};
@@ -3501,10 +3535,14 @@
     }
   }
 
+  var activeAutoRunSymbol = null;
+
   async function autoRunAI(symbol) {
+    activeAutoRunSymbol = symbol;
     var c = cache[symbol];
     if (!c) return;
     // News AI
+    if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
     if (c.articles && c.articles.length && !c.aiResult) {
       try {
         await runAIAnalysis(symbol);
@@ -3512,6 +3550,7 @@
       await delay(3000);
     }
     // Analyst AI
+    if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
     c = cache[symbol];
     if (c && ((c.recommendations && c.recommendations.length) || (c.upgrades && c.upgrades.length)) && !c.analystAIResult) {
       try {
@@ -3520,6 +3559,7 @@
       await delay(3000);
     }
     // Macro AI
+    if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
     c = cache[symbol];
     if (c && c.macroArticles && c.macroArticles.length && !c.macroAIResult) {
       try {
@@ -3528,6 +3568,7 @@
       await delay(3000);
     }
     // Transcript / Earnings Call AI
+    if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
     c = cache[symbol];
     if (c && !c.transcriptAIResult && NewsAI.hasKey()) {
       var hasEarnings = c.earnings && c.earnings.length;
@@ -3540,6 +3581,7 @@
       }
     }
     // Technicals AI (loads RSI, MACD, SMA from AV then runs AI analysis)
+    if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
     c = cache[symbol];
     if (c && AlphaAPI.hasKey() && !c.technicalsResult) {
       try {
@@ -3548,6 +3590,7 @@
       await delay(3000);
     }
     // Fundamentals & Sentiment AI (loads AV overview + sentiment then runs AI)
+    if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
     c = cache[symbol];
     if (c && !c.fundamentalsResult) {
       try {
@@ -3557,6 +3600,7 @@
     }
 
     // Revenue & Income (AV call)
+    if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
     c = cache[symbol];
     if (c && AlphaAPI.hasKey() && (!c.incomeData || !c.incomeData.length)) {
       try {
@@ -3564,6 +3608,7 @@
       } catch (e) { console.warn('Auto revenue error:', e.message); }
     }
     // Cash Flow (AV call)
+    if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
     c = cache[symbol];
     if (c && AlphaAPI.hasKey() && (!c.cashFlowData || !c.cashFlowData.length)) {
       try {
@@ -3571,6 +3616,7 @@
       } catch (e) { console.warn('Auto cash flow error:', e.message); }
     }
     // Balance Sheet (AV call)
+    if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
     c = cache[symbol];
     if (c && AlphaAPI.hasKey() && (!c.balanceSheetData || !c.balanceSheetData.length)) {
       try {
@@ -3579,6 +3625,7 @@
     }
 
     // Auto-load peer comparison (after AI tiles to avoid Finnhub rate limit contention)
+    if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
     c = cache[symbol];
     if (c && StockAPI.hasKey() && (!c.peers || !c.peers.length)) {
       var s = trackedStocks.find(function(t) { return t.symbol === symbol; }) || {};
@@ -4069,7 +4116,7 @@
     var today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     var subject = 'Stock Tracker Morning Report — ' + today;
     var body = 'STOCK TRACKER — MORNING REPORT\n' + today + '\n';
-    body += '═══════════════════════════════════════════\n\n';
+    body += '=======================================\n\n';
 
     results.forEach(function(v) {
       var changeVal = v._change || 0;
@@ -4087,43 +4134,65 @@
       if (v.bear && v.bear.length) body += '  Bear: ' + v.bear.join(' | ') + '\n';
       body += '\n';
     });
-    body += '───────────────────────────────────────────\n';
+    body += '---------------------------------------\n';
     body += 'Generated by Stock Tracker AI | Not financial advice\n';
 
     // Copy rich HTML to clipboard for pasting into email
-    try {
-      var blob = new Blob([html], { type: 'text/html' });
-      var plainBlob = new Blob([body], { type: 'text/plain' });
-      navigator.clipboard.write([
-        new ClipboardItem({
-          'text/html': blob,
-          'text/plain': plainBlob
-        })
-      ]).then(function() {
-        showWarning('Report copied to clipboard (rich HTML). Paste into your email client.', 8000);
-      }).catch(function() {
-        // Fallback: copy plain text
-        navigator.clipboard.writeText(body).then(function() {
-          showWarning('Report copied to clipboard (plain text). Paste into your email client.', 8000);
-        }).catch(function() {});
-      });
-    } catch(e) {
-      // Clipboard API not available — try plain text fallback
+    var clipboardOk = false;
+    function tryCopyToClipboard() {
       try {
-        navigator.clipboard.writeText(body).then(function() {
-          showWarning('Report copied to clipboard. Paste into your email client.', 8000);
-        }).catch(function() {});
-      } catch(e2) {}
+        var blob = new Blob([html], { type: 'text/html' });
+        var plainBlob = new Blob([body], { type: 'text/plain' });
+        return navigator.clipboard.write([
+          new ClipboardItem({
+            'text/html': blob,
+            'text/plain': plainBlob
+          })
+        ]).then(function() {
+          clipboardOk = true;
+        }).catch(function() {
+          return navigator.clipboard.writeText(body).then(function() {
+            clipboardOk = true;
+          });
+        });
+      } catch(e) {
+        try {
+          return navigator.clipboard.writeText(body).then(function() {
+            clipboardOk = true;
+          });
+        } catch(e2) {
+          return Promise.resolve();
+        }
+      }
     }
 
-    // Also open mailto as fallback (truncated if too long)
-    var mailtoBody = body;
-    // mailto has ~2000 char limit in most browsers
-    if (mailtoBody.length > 1800) {
-      mailtoBody = mailtoBody.substring(0, 1800) + '\n\n[Report truncated — paste full version from clipboard]';
-    }
-    var mailto = 'mailto:' + encodeURIComponent(localStorage.getItem('report_email') || '') + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(mailtoBody);
-    window.open(mailto, '_blank');
+    tryCopyToClipboard().catch(function() {}).finally(function() {
+      // Build mailto URL — keep body short to avoid URL length limits
+      var email = localStorage.getItem('report_email') || '';
+      var mailtoBody = body;
+      // Total mailto URL must stay under ~2000 chars after encoding
+      // encodeURIComponent roughly triples length for special chars
+      var maxBodyChars = 600;
+      if (mailtoBody.length > maxBodyChars) {
+        mailtoBody = mailtoBody.substring(0, maxBodyChars) + '\n\n[Full report on clipboard — paste into email body]';
+      }
+      var mailto = 'mailto:' + encodeURIComponent(email)
+        + '?subject=' + encodeURIComponent(subject)
+        + '&body=' + encodeURIComponent(mailtoBody);
+
+      // Use location.href for mailto — more reliable than window.open
+      // window.open is blocked as a popup after async operations
+      try {
+        window.location.href = mailto;
+      } catch(e) {}
+
+      // Show appropriate feedback
+      if (clipboardOk) {
+        showWarning('Report copied to clipboard (rich HTML). Paste into your email body for the full report.', 10000);
+      } else {
+        showWarning('Email client should open. If not, check your popup blocker settings.', 8000);
+      }
+    });
   }
 
   /** Called on init and after Google login — loads user data and starts the app */

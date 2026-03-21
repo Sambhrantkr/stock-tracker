@@ -317,7 +317,9 @@ const NewsAI = (() => {
     if (allData.financials) {
       var f = allData.financials;
       b += '  P/E (TTM):      ' + (f.peRatio || 'N/A') + '\n';
-      b += '  Forward P/E:    ' + (f.forwardPE || 'N/A') + '\n';
+      var fwdPE = 'N/A';
+      if (allData.avOverview && allData.avOverview.ForwardPE && allData.avOverview.ForwardPE !== 'None') fwdPE = allData.avOverview.ForwardPE;
+      b += '  Forward P/E:    ' + fwdPE + '\n';
       b += '  EPS (TTM):      ' + (f.eps || 'N/A') + '\n';
       b += '  52W High:       ' + (f.week52High || 'N/A') + '\n';
       b += '  52W Low:        ' + (f.week52Low || 'N/A') + '\n';

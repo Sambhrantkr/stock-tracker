@@ -151,8 +151,9 @@ const StockAPI = (() => {
     return {
       peRatio: m.peNormalizedAnnual != null ? m.peNormalizedAnnual.toFixed(1) : (m.peTTM != null ? m.peTTM.toFixed(1) : 'N/A'),
       peTTM: m.peTTM || null,
-      forwardPE: m.peBasicExclExtraTTM != null ? m.peBasicExclExtraTTM.toFixed(1) : 'N/A',
+      peBasicExclExtraTTM: m.peBasicExclExtraTTM || null,
       eps: m.epsNormalizedAnnual != null ? m.epsNormalizedAnnual.toFixed(2) : (m.epsTTM != null ? m.epsTTM.toFixed(2) : 'N/A'),
+      epsTTM: m.epsTTM || null,
       dividendYield: m.dividendYieldIndicatedAnnual != null ? (m.dividendYieldIndicatedAnnual).toFixed(2) + '%' : 'N/A',
       week52High: m['52WeekHigh'] != null ? '$' + m['52WeekHigh'].toFixed(2) : 'N/A',
       week52Low: m['52WeekLow'] != null ? '$' + m['52WeekLow'].toFixed(2) : 'N/A',
