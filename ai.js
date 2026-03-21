@@ -1,66 +1,216 @@
 /**
- * AI News Analysis using Groq (free tier, 14,400 req/day)
- * Uses Llama model for fast inference
- * Get your free key at: https://console.groq.com/keys
+ * AI News Analysis using Groq + Google Gemini (dual-provider for rate limit resilience)
+ * Groq: https://console.groq.com/keys
+ * Gemini: https://aistudio.google.com/apikey
  */
 const NewsAI = (() => {
   const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-  const MODEL = 'llama-3.1-8b-instant';
+  const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/';
+  const GEMINI_MODEL = 'gemini-2.0-flash';
+
+  // ── Model tiers (each has its own Groq rate limit bucket) ──
+  // LIGHT: fast, high RPD — news, analyst, macro analysis (offloaded to Gemini when available)
+  const MODEL_LIGHT = 'llama-3.1-8b-instant';
+  // MID: good quality, high TPM — technicals, fundamentals, transcript
+  const MODEL_MID = 'meta-llama/llama-4-scout-17b-16e-instruct';
+  // DEEP: best reasoning — senior analyst verdict, chat advisor
   const MODEL_DEEP = 'llama-3.3-70b-versatile';
+
+  // Legacy alias
+  const MODEL = MODEL_LIGHT;
 
   function getKey() { return (typeof Auth !== 'undefined' && Auth.isLoggedIn()) ? (Auth.getItem('groq_api_key') || '') : (localStorage.getItem('groq_api_key') || ''); }
   function setKey(key) { if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('groq_api_key', key.trim()); else localStorage.setItem('groq_api_key', key.trim()); }
   function hasKey() { return getKey().length > 0; }
 
-  // ── Centralized rate-limit queue ──
-  // Ensures only one Groq API call runs at a time with a minimum gap between calls.
-  // Groq free tier: 30 req/min for llama-3.1-8b, 30 req/min for llama-3.3-70b
-  var _groqQueue = [];
-  var _groqRunning = false;
-  var _groqLastCallTime = 0;
-  var _groqBackoffUntil = 0; // extra backoff after errors
-  var GROQ_MIN_GAP_MS = 2500; // minimum 2.5s between calls
+  // ── Gemini key management ──
+  function getGeminiKey() { return (typeof Auth !== 'undefined' && Auth.isLoggedIn()) ? (Auth.getItem('gemini_api_key') || '') : (localStorage.getItem('gemini_api_key') || ''); }
+  function setGeminiKey(key) { if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('gemini_api_key', key.trim()); else localStorage.setItem('gemini_api_key', key.trim()); }
+  function hasGeminiKey() { return getGeminiKey().length > 0; }
 
-  function _groqEnqueue(fn) {
+  // ── Per-model rate-limit queues ──
+  // Each model has its own 30 RPM bucket on Groq, so we run separate queues.
+  // This gives us ~90 RPM combined instead of 30.
+  var _modelQueues = {};
+  var GROQ_MIN_GAP_MS = 2200; // ~27 req/min per model, safe under 30 RPM
+
+  function _getModelQueue(model) {
+    if (!_modelQueues[model]) {
+      _modelQueues[model] = { queue: [], running: false, lastCallTime: 0, backoffUntil: 0 };
+    }
+    return _modelQueues[model];
+  }
+
+  function _groqEnqueue(fn, model) {
+    var mq = _getModelQueue(model || MODEL_LIGHT);
     return new Promise(function(resolve, reject) {
-      _groqQueue.push({ fn: fn, resolve: resolve, reject: reject });
-      _groqProcessQueue();
+      mq.queue.push({ fn: fn, resolve: resolve, reject: reject });
+      _groqProcessModelQueue(mq);
     });
   }
 
-  async function _groqProcessQueue() {
-    if (_groqRunning || !_groqQueue.length) return;
-    _groqRunning = true;
-    while (_groqQueue.length) {
-      var item = _groqQueue.shift();
-      // Enforce minimum gap between calls
+  async function _groqProcessModelQueue(mq) {
+    if (mq.running || !mq.queue.length) return;
+    mq.running = true;
+    while (mq.queue.length) {
+      var item = mq.queue.shift();
       var now = Date.now();
-      var waitUntil = Math.max(_groqLastCallTime + GROQ_MIN_GAP_MS, _groqBackoffUntil);
+      var waitUntil = Math.max(mq.lastCallTime + GROQ_MIN_GAP_MS, mq.backoffUntil);
       if (now < waitUntil) {
         await new Promise(function(r) { setTimeout(r, waitUntil - now); });
       }
       try {
         var result = await item.fn();
-        _groqLastCallTime = Date.now();
-        _groqBackoffUntil = 0; // clear backoff on success
+        mq.lastCallTime = Date.now();
+        mq.backoffUntil = 0;
         item.resolve(result);
       } catch (e) {
-        _groqLastCallTime = Date.now();
-        // On rate limit or network error, add extra backoff for subsequent calls
+        mq.lastCallTime = Date.now();
         if (e.message && (e.message.toLowerCase().indexOf('rate') !== -1 || e.message.indexOf('Network') !== -1)) {
-          _groqBackoffUntil = Date.now() + 10000; // 10s extra cooldown
+          mq.backoffUntil = Date.now() + 10000;
         }
         item.reject(e);
       }
     }
-    _groqRunning = false;
+    mq.running = false;
   }
 
-  /** Groq fetch with auto-retry on 429 rate limit. opts: { model, timeoutMs } */
+  // ── Gemini rate-limit queue ──
+  var _geminiQueue = { queue: [], running: false, lastCallTime: 0, backoffUntil: 0 };
+  var GEMINI_MIN_GAP_MS = 4200; // ~14 req/min, safe under 15 RPM free tier
+
+  function _geminiEnqueue(fn) {
+    return new Promise(function(resolve, reject) {
+      _geminiQueue.queue.push({ fn: fn, resolve: resolve, reject: reject });
+      _processGeminiQueue();
+    });
+  }
+
+  async function _processGeminiQueue() {
+    if (_geminiQueue.running || !_geminiQueue.queue.length) return;
+    _geminiQueue.running = true;
+    while (_geminiQueue.queue.length) {
+      var item = _geminiQueue.queue.shift();
+      var now = Date.now();
+      var waitUntil = Math.max(_geminiQueue.lastCallTime + GEMINI_MIN_GAP_MS, _geminiQueue.backoffUntil);
+      if (now < waitUntil) {
+        await new Promise(function(r) { setTimeout(r, waitUntil - now); });
+      }
+      try {
+        var result = await item.fn();
+        _geminiQueue.lastCallTime = Date.now();
+        _geminiQueue.backoffUntil = 0;
+        item.resolve(result);
+      } catch (e) {
+        _geminiQueue.lastCallTime = Date.now();
+        if (e.message && (e.message.toLowerCase().indexOf('rate') !== -1 || e.message.indexOf('429') !== -1)) {
+          _geminiQueue.backoffUntil = Date.now() + 15000;
+        }
+        item.reject(e);
+      }
+    }
+    _geminiQueue.running = false;
+  }
+
+  /** Gemini fetch with auto-retry. Converts OpenAI-style messages to Gemini format. */
+  async function _geminiFetchDirect(messages, maxTokens, temperature) {
+    var key = getGeminiKey();
+    if (!key) throw new Error('Gemini API key not set.');
+    var url = GEMINI_URL + GEMINI_MODEL + ':generateContent?key=' + key;
+
+    // Convert messages to Gemini format
+    var systemInstruction = null;
+    var contents = [];
+    for (var i = 0; i < messages.length; i++) {
+      var m = messages[i];
+      if (m.role === 'system') {
+        systemInstruction = { parts: [{ text: m.content }] };
+      } else {
+        contents.push({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] });
+      }
+    }
+
+    var body = {
+      contents: contents,
+      generationConfig: {
+        temperature: temperature || 0.3,
+        maxOutputTokens: maxTokens || 800,
+        responseMimeType: 'application/json'
+      }
+    };
+    if (systemInstruction) body.systemInstruction = systemInstruction;
+
+    var retries = 3;
+    var waitMs = 5000;
+    for (var attempt = 0; attempt < retries; attempt++) {
+      var res;
+      try {
+        var controller = new AbortController();
+        var timeoutId = setTimeout(function() { controller.abort(); }, 30000);
+        res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+      } catch (e) {
+        if (e.name === 'AbortError') {
+          if (attempt < retries - 1) { await new Promise(function(r) { setTimeout(r, 3000); }); continue; }
+          throw new Error('Gemini request timed out.');
+        }
+        if (attempt < 1) { await new Promise(function(r) { setTimeout(r, 2000); }); continue; }
+        throw new Error('Network error reaching Gemini. Check connection.');
+      }
+      if (res.status === 429 && attempt < retries - 1) {
+        var retryMs = waitMs;
+        await new Promise(function(r) { setTimeout(r, retryMs); });
+        waitMs = Math.min(waitMs * 2, 30000);
+        continue;
+      }
+      if (res.status === 429) throw new Error('Gemini rate limited. Wait and try again.');
+      if (res.status === 400) {
+        var errData; try { errData = await res.json(); } catch(e2) { errData = {}; }
+        throw new Error('Gemini error: ' + (errData.error && errData.error.message ? errData.error.message : 'Bad request'));
+      }
+      if (!res.ok) throw new Error('Gemini error: HTTP ' + res.status);
+      var data;
+      try { data = await res.json(); } catch (e) {
+        if (attempt < retries - 1) { await new Promise(function(r) { setTimeout(r, 2000); }); continue; }
+        throw new Error('Gemini returned invalid response.');
+      }
+      // Extract text from Gemini response
+      var text = '';
+      try { text = data.candidates[0].content.parts[0].text; } catch(e) {
+        if (attempt < retries - 1) { await new Promise(function(r) { setTimeout(r, 2000); }); continue; }
+        throw new Error('Gemini returned empty response.');
+      }
+      var cleaned = text.trim();
+      if (cleaned.indexOf('```') === 0) {
+        cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+      }
+      try { return JSON.parse(cleaned); } catch (e) {
+        if (attempt < retries - 1) { await new Promise(function(r) { setTimeout(r, 2000); }); continue; }
+        throw new Error('Gemini returned invalid JSON.');
+      }
+    }
+  }
+
+  /**
+   * Smart fetch: routes to Gemini for LIGHT tasks when Gemini key is available,
+   * falls back to Groq otherwise. MID/DEEP always go to Groq.
+   */
   async function groqFetch(messages, maxTokens, temperature, opts) {
+    var useModel = (opts && opts.model) || MODEL_LIGHT;
+    // Route LIGHT-tier tasks to Gemini when key is available
+    if (useModel === MODEL_LIGHT && hasGeminiKey()) {
+      return _geminiEnqueue(function() {
+        return _geminiFetchDirect(messages, maxTokens, temperature);
+      });
+    }
     return _groqEnqueue(function() {
       return _groqFetchDirect(messages, maxTokens, temperature, opts);
-    });
+    }, useModel);
   }
 
   async function _groqFetchDirect(messages, maxTokens, temperature, opts) {
@@ -317,7 +467,7 @@ const NewsAI = (() => {
     var sourceNote = transcriptText ? 'Based on the actual earnings call transcript below' : 'Based on the following earnings data and news coverage';
     var prompt = 'You are a senior equity research analyst. ' + sourceNote + ', provide a comprehensive summary of ' + symbol + ' (' + (companyName || symbol) + ') most recent earnings results.\n\n' + kpiContext + '\n\n' + earningsText + transcriptText + newsText + '\n\nRespond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "3-4 sentence executive summary covering key financial results, management outlook, and market reaction",\n  "sentiment": "POSITIVE" or "NEGATIVE" or "CAUTIOUS" or "CONFIDENT",\n  "sentimentReason": "1 sentence on the overall tone of the earnings results",\n  "keyHighlights": [\n    {\n      "topic": "short label (e.g. Revenue Beat, Margin Expansion, User Growth)",\n      "detail": "1-2 sentences on the key point"\n    }\n  ],\n  "guidance": [\n    {\n      "metric": "what metric (e.g. Revenue, EPS, Margins)",\n      "direction": "RAISED" or "LOWERED" or "MAINTAINED" or "INTRODUCED",\n      "detail": "1 sentence on the forward guidance"\n    }\n  ],\n  "risks": [\n    {\n      "risk": "risk or concern from the earnings",\n      "detail": "1 sentence explanation"\n    }\n  ]\n}\n\nKeep keyHighlights to 3-5 items. Keep guidance to 2-3 items. Keep risks to 2-3 items. Be specific about numbers.';
 
-    return groqFetch([{ role: 'user', content: prompt }], 900, 0.3);
+    return groqFetch([{ role: 'user', content: prompt }], 900, 0.3, { model: MODEL_MID });
   }
 
   /**
@@ -917,7 +1067,7 @@ const NewsAI = (() => {
 
     var prompt = 'You are a senior equity research analyst. Analyze the following company fundamentals for ' + symbol + ' (' + (companyName || symbol) + ') and provide a comprehensive assessment.\n\n' + sections + 'Respond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "3-4 sentence executive summary of the company fundamentals, growth trajectory, and financial health",\n  "growthOutlook": "ACCELERATING" or "STABLE" or "DECELERATING" or "DECLINING",\n  "growthReason": "1 sentence on the growth trajectory",\n  "marginTrend": "EXPANDING" or "STABLE" or "COMPRESSING",\n  "marginReason": "1 sentence on margin trends",\n  "healthScore": "STRONG" or "ADEQUATE" or "WEAK",\n  "healthReason": "1 sentence on balance sheet health",\n  "sentimentLabel": "BULLISH" or "BEARISH" or "NEUTRAL" or "MIXED",\n  "sentimentReason": "1 sentence on market sentiment",\n  "strengths": [\n    {\n      "area": "short label",\n      "detail": "1 sentence explanation"\n    }\n  ],\n  "weaknesses": [\n    {\n      "area": "short label",\n      "detail": "1 sentence explanation"\n    }\n  ],\n  "keyInsights": [\n    {\n      "insight": "short label",\n      "detail": "1 sentence actionable insight"\n    }\n  ]\n}\n\nKeep strengths to 2-4 items. Keep weaknesses to 2-3 items. Keep keyInsights to 2-3 items. Be specific with numbers.';
 
-    return groqFetch([{ role: 'user', content: prompt }], 900, 0.3);
+    return groqFetch([{ role: 'user', content: prompt }], 900, 0.3, { model: MODEL_MID });
   }
 
   /**
@@ -962,7 +1112,7 @@ const NewsAI = (() => {
 
     var prompt = 'You are a senior technical analyst. Analyze the following technical indicators for ' + symbol + ' (' + (companyName || symbol) + ') and provide a trading signal interpretation.\n\n' + sections + '\nRespond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "2-3 sentence technical analysis summary",\n  "signal": "BULLISH" or "BEARISH" or "NEUTRAL",\n  "signalReason": "1 sentence explaining the overall technical signal",\n  "indicators": [\n    {\n      "name": "indicator name (RSI, MACD, SMA)",\n      "value": "current value",\n      "interpretation": "1 sentence interpretation"\n    }\n  ],\n  "support": "nearest support level estimate",\n  "resistance": "nearest resistance level estimate",\n  "recommendation": "1 sentence actionable recommendation for traders"\n}\n\nKeep indicators to 3-5 items. Be specific with numbers.';
 
-    return groqFetch([{ role: 'user', content: prompt }], 700, 0.3);
+    return groqFetch([{ role: 'user', content: prompt }], 700, 0.3, { model: MODEL_MID });
   }
 
   /**
@@ -971,9 +1121,10 @@ const NewsAI = (() => {
    * Returns plain text string (not parsed JSON).
    */
   async function chatAdvisor(messages, opts) {
+    var useModel = (opts && opts.model) || MODEL_DEEP;
     return _groqEnqueue(function() {
       return _chatAdvisorDirect(messages, opts);
-    });
+    }, useModel);
   }
 
   async function _chatAdvisorDirect(messages, opts) {
@@ -1032,5 +1183,5 @@ const NewsAI = (() => {
     throw new Error('Failed after retries. Try again.');
   }
 
-  return { getKey, setKey, hasKey, analyzeNews, analyzeAnalysts, analyzeMacro, summarizeTranscript, generateVerdict, analyzeFundamentals, analyzeTechnicals, chatAdvisor };
+  return { getKey, setKey, hasKey, getGeminiKey, setGeminiKey, hasGeminiKey, analyzeNews, analyzeAnalysts, analyzeMacro, summarizeTranscript, generateVerdict, analyzeFundamentals, analyzeTechnicals, chatAdvisor };
 })();

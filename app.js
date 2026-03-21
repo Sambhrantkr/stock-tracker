@@ -8,6 +8,7 @@
   var banner = document.getElementById('api-key-banner');
   var keyInput = document.getElementById('api-key-input');
   var groqKeyInput = document.getElementById('groq-key-input');
+  var geminiKeyInput = document.getElementById('gemini-key-input');
   var avKeyInput = document.getElementById('av-key-input');
   var reportEmailInput = document.getElementById('report-email-input');
   var saveKeyBtn = document.getElementById('save-key-btn');
@@ -80,15 +81,18 @@
   // --- API Keys ---
   saveKeyBtn.addEventListener('click', function() {
     var fk = keyInput.value.trim(), gk = groqKeyInput.value.trim(), ak = avKeyInput.value.trim();
+    var gmk = geminiKeyInput ? geminiKeyInput.value.trim() : '';
     var em = reportEmailInput ? reportEmailInput.value.trim() : '';
     if (fk && fk.indexOf('\u2022') !== 0) StockAPI.setKey(fk);
     if (gk && gk.indexOf('\u2022') !== 0) NewsAI.setKey(gk);
+    if (gmk && gmk.indexOf('\u2022') !== 0) NewsAI.setGeminiKey(gmk);
     if (ak && ak.indexOf('\u2022') !== 0) AlphaAPI.setKey(ak);
     if (em) localStorage.setItem('report_email', em);
     else if (em === '') localStorage.removeItem('report_email');
     if (StockAPI.hasKey()) banner.classList.add('hidden');
     keyInput.value = StockAPI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     groqKeyInput.value = NewsAI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
+    if (geminiKeyInput) geminiKeyInput.value = NewsAI.hasGeminiKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     avKeyInput.value = AlphaAPI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     if (reportEmailInput) reportEmailInput.value = localStorage.getItem('report_email') || '';
     if (StockAPI.hasKey()) refreshAll();
@@ -97,6 +101,7 @@
     banner.classList.toggle('hidden');
     keyInput.value = StockAPI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     groqKeyInput.value = NewsAI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
+    if (geminiKeyInput) geminiKeyInput.value = NewsAI.hasGeminiKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     avKeyInput.value = AlphaAPI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     if (reportEmailInput) reportEmailInput.value = localStorage.getItem('report_email') || '';
   });
@@ -118,6 +123,7 @@
   if (guideModal) guideModal.addEventListener('click', function(e) { if (e.target === guideModal) closeGuide(); });
   keyInput.addEventListener('focus', function() { if (keyInput.value.indexOf('\u2022') === 0) keyInput.value = ''; });
   groqKeyInput.addEventListener('focus', function() { if (groqKeyInput.value.indexOf('\u2022') === 0) groqKeyInput.value = ''; });
+  if (geminiKeyInput) geminiKeyInput.addEventListener('focus', function() { if (geminiKeyInput.value.indexOf('\u2022') === 0) geminiKeyInput.value = ''; });
   avKeyInput.addEventListener('focus', function() { if (avKeyInput.value.indexOf('\u2022') === 0) avKeyInput.value = ''; });
   function saveTracked() { userSet('tracked_stocks', trackedStocks); }
 
@@ -914,7 +920,7 @@
     // ── PHASE 3: Senior Analyst deep analysis ──
     if (isSelected) btn.textContent = 'Deep analysis\u2026';
     var inventory = buildDataInventory(c);
-    if (isSelected) contentEl.innerHTML = '<div class="tile-loading">\uD83C\uDFAF Senior analyst performing deep analysis on ' + symbol + '...<br><span style="font-size:0.65rem;color:var(--muted);">Using 70B model \u2022 ' + inventory.summary + '</span></div>';
+    if (isSelected) contentEl.innerHTML = '<div class="tile-loading">\uD83C\uDFAF Senior analyst performing deep analysis on ' + symbol + '...<br><span style="font-size:0.65rem;color:var(--muted);">Groq 70B model \u2022 ' + inventory.summary + '</span></div>';
     try {
       c.verdictResult = await NewsAI.generateVerdict(
         symbol,

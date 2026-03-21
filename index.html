@@ -51,6 +51,19 @@
         <div class="guide-section">
           <div class="guide-section-num">3</div>
           <div class="guide-section-content">
+            <div class="guide-section-title">✨ Google Gemini API Key <span class="guide-tag optional">Optional — AI boost</span></div>
+            <div class="guide-steps">
+              <div class="guide-step">Go to <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></div>
+              <div class="guide-step">Sign in with Google and click <strong>Create API Key</strong>.</div>
+              <div class="guide-step">Copy the key and paste it in ⚙️ Settings.</div>
+            </div>
+            <div class="guide-note">Free tier: 15 RPM, 1,500 RPD. Offloads news, analyst, and macro AI to Google — reduces Groq rate limit pressure by ~60%.</div>
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <div class="guide-section-num">4</div>
+          <div class="guide-section-content">
             <div class="guide-section-title">📈 Alpha Vantage API Key <span class="guide-tag optional">Optional — extra data</span></div>
             <div class="guide-steps">
               <div class="guide-step">Go to <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co/support/#api-key</a></div>
@@ -68,7 +81,8 @@
             <tbody>
               <tr><td>Google Sign-In</td><td>Optional</td><td>Unlimited</td><td>User-scoped data isolation (sign in via sidebar)</td></tr>
               <tr><td>Finnhub</td><td>Yes</td><td>60 calls/min</td><td>Quotes, profiles, news, earnings, peers, insider data</td></tr>
-              <tr><td>Groq</td><td>No</td><td>14,400/day</td><td>All AI analysis tiles &amp; verdict</td></tr>
+              <tr><td>Groq</td><td>No</td><td>14,400/day</td><td>AI technicals, fundamentals, transcript, senior verdict, chat</td></tr>
+              <tr><td>Gemini</td><td>No</td><td>1,500/day</td><td>AI news, analyst, macro analysis (offloads Groq)</td></tr>
               <tr><td>Alpha Vantage</td><td>No</td><td>25/day</td><td>Company overview, transcripts, technicals, revenue</td></tr>
             </tbody>
           </table>
@@ -125,6 +139,11 @@
         <div class="key-row">
           <p><a href="https://console.groq.com/keys" target="_blank" rel="noopener">Groq</a> key (optional, AI):</p>
           <input type="text" id="groq-key-input" placeholder="Paste Groq API key..." aria-label="Groq API key" />
+        </div>
+        <div class="key-row">
+          <p><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Gemini</a> key (optional, AI boost):</p>
+          <input type="text" id="gemini-key-input" placeholder="Paste Gemini API key..." aria-label="Google Gemini API key" />
+          <div style="font-size:0.6rem;color:var(--muted);margin-top:0.15rem;">Offloads news/analyst/macro AI to Google — reduces Groq rate limits</div>
         </div>
         <div class="key-row">
           <p><a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">Alpha Vantage</a> key (optional):</p>
