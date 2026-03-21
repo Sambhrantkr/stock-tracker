@@ -18,6 +18,7 @@ const NewsAI = (() => {
   var _groqQueue = [];
   var _groqRunning = false;
   var _groqLastCallTime = 0;
+  var _groqBackoffUntil = 0; // extra backoff after errors
   var GROQ_MIN_GAP_MS = 2500; // minimum 2.5s between calls
 
   function _groqEnqueue(fn) {
@@ -33,16 +34,22 @@ const NewsAI = (() => {
     while (_groqQueue.length) {
       var item = _groqQueue.shift();
       // Enforce minimum gap between calls
-      var elapsed = Date.now() - _groqLastCallTime;
-      if (elapsed < GROQ_MIN_GAP_MS) {
-        await new Promise(function(r) { setTimeout(r, GROQ_MIN_GAP_MS - elapsed); });
+      var now = Date.now();
+      var waitUntil = Math.max(_groqLastCallTime + GROQ_MIN_GAP_MS, _groqBackoffUntil);
+      if (now < waitUntil) {
+        await new Promise(function(r) { setTimeout(r, waitUntil - now); });
       }
       try {
         var result = await item.fn();
         _groqLastCallTime = Date.now();
+        _groqBackoffUntil = 0; // clear backoff on success
         item.resolve(result);
       } catch (e) {
         _groqLastCallTime = Date.now();
+        // On rate limit or network error, add extra backoff for subsequent calls
+        if (e.message && (e.message.toLowerCase().indexOf('rate') !== -1 || e.message.indexOf('Network') !== -1)) {
+          _groqBackoffUntil = Date.now() + 10000; // 10s extra cooldown
+        }
         item.reject(e);
       }
     }
@@ -59,7 +66,7 @@ const NewsAI = (() => {
   async function _groqFetchDirect(messages, maxTokens, temperature, opts) {
     var useModel = (opts && opts.model) || MODEL;
     var useTimeout = (opts && opts.timeoutMs) || 30000;
-    var retries = 5;
+    var retries = 3;
     var waitMs = 5000;
     for (var attempt = 0; attempt < retries; attempt++) {
       var res;
@@ -86,8 +93,9 @@ const NewsAI = (() => {
           if (attempt < retries - 1) { await new Promise(function(r) { setTimeout(r, 3000); }); continue; }
           throw new Error('AI request timed out. Try again.');
         }
-        if (attempt < retries - 1) { await new Promise(function(r) { setTimeout(r, 2000); }); continue; }
-        throw new Error('Network error reaching Groq AI: ' + (e.message || 'Check your connection.'));
+        // Network errors: retry once quickly, then fail fast to unblock the queue
+        if (attempt < 1) { await new Promise(function(r) { setTimeout(r, 2000); }); continue; }
+        throw new Error('Network error reaching Groq AI. Check your connection and try again.');
       }
       if (res.status === 429 && attempt < retries - 1) {
         var retryAfter = res.headers.get('retry-after');
@@ -972,7 +980,7 @@ const NewsAI = (() => {
     var useModel = (opts && opts.model) || MODEL_DEEP;
     var useTimeout = (opts && opts.timeoutMs) || 60000;
     var maxTokens = (opts && opts.maxTokens) || 2048;
-    var retries = 4;
+    var retries = 3;
     var waitMs = 8000;
     for (var attempt = 0; attempt < retries; attempt++) {
       var res;
@@ -999,7 +1007,7 @@ const NewsAI = (() => {
           if (attempt < retries - 1) { await new Promise(function(r) { setTimeout(r, 3000); }); continue; }
           throw new Error('Request timed out. Try again.');
         }
-        if (attempt < retries - 1) { await new Promise(function(r) { setTimeout(r, 2000); }); continue; }
+        if (attempt < 1) { await new Promise(function(r) { setTimeout(r, 2000); }); continue; }
         throw new Error('Network error: ' + (e.message || 'Check connection.'));
       }
       if (res.status === 429 && attempt < retries - 1) {
