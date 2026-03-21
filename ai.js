@@ -198,47 +198,75 @@ const NewsAI = (() => {
 
   /**
    * Smart fetch: routes LIGHT+MID to Gemini, DEEP to Groq (best reasoning).
-   * Falls back to Groq if Gemini fails.
+   * Falls back between providers. Auto-retries on rate limits with delay.
    */
   async function groqFetch(messages, maxTokens, temperature, opts) {
     var useModel = (opts && opts.model) || MODEL_LIGHT;
     var isDeep = (useModel === MODEL_DEEP);
-    // DEEP tier → Groq 70b for best reasoning quality (with Gemini fallback)
-    if (isDeep) {
+    var maxRetries = 2;
+
+    for (var retry = 0; retry <= maxRetries; retry++) {
+      if (retry > 0) {
+        var waitSec = 15 + retry * 10; // 25s, 35s
+        console.log('[AI] Both providers rate limited. Waiting ' + waitSec + 's before retry ' + retry + '/' + maxRetries);
+        await new Promise(function(r) { setTimeout(r, waitSec * 1000); });
+      }
+
+      // DEEP tier → Groq 70b primary, Gemini fallback
+      if (isDeep) {
+        try {
+          console.log('[AI] Routing to Groq DEEP (70b)' + (retry ? ' [retry ' + retry + ']' : ''));
+          return await _groqEnqueue(function() {
+            return _groqFetchDirect(messages, maxTokens, temperature, opts);
+          }, useModel);
+        } catch (e) {
+          if (hasGeminiKey() && e.message && e.message.toLowerCase().indexOf('rate') !== -1) {
+            try {
+              console.warn('[AI] Groq DEEP rate limited, trying Gemini');
+              return await _geminiEnqueue(function() {
+                return _geminiFetchDirect(messages, maxTokens, temperature);
+              });
+            } catch (e2) {
+              if (retry < maxRetries) continue; // Both failed, retry after delay
+              throw e2;
+            }
+          }
+          throw e;
+        }
+      }
+
+      // LIGHT + MID → Gemini primary, Groq fallback
+      if (hasGeminiKey()) {
+        var tierLabel = useModel === MODEL_MID ? 'MID' : 'LIGHT';
+        try {
+          console.log('[AI] Routing to Gemini (' + tierLabel + ')' + (retry ? ' [retry ' + retry + ']' : ''));
+          return await _geminiEnqueue(function() {
+            return _geminiFetchDirect(messages, maxTokens, temperature);
+          });
+        } catch (e) {
+          try {
+            console.warn('[AI] Gemini failed (' + e.message + '), trying Groq ' + tierLabel);
+            return await _groqEnqueue(function() {
+              return _groqFetchDirect(messages, maxTokens, temperature, opts);
+            }, useModel);
+          } catch (e2) {
+            if (retry < maxRetries && e2.message && e2.message.toLowerCase().indexOf('rate') !== -1) continue;
+            throw e2;
+          }
+        }
+      }
+
+      // No Gemini key — Groq only
       try {
-        console.log('[AI] Routing to Groq DEEP (70b)');
+        console.log('[AI] Routing to Groq (' + useModel.split('/').pop() + ')' + (retry ? ' [retry ' + retry + ']' : ''));
         return await _groqEnqueue(function() {
           return _groqFetchDirect(messages, maxTokens, temperature, opts);
         }, useModel);
       } catch (e) {
-        if (hasGeminiKey() && e.message && e.message.toLowerCase().indexOf('rate') !== -1) {
-          console.warn('[AI] Groq DEEP rate limited, falling back to Gemini');
-          return _geminiEnqueue(function() {
-            return _geminiFetchDirect(messages, maxTokens, temperature);
-          });
-        }
+        if (retry < maxRetries && e.message && e.message.toLowerCase().indexOf('rate') !== -1) continue;
         throw e;
       }
     }
-    // LIGHT + MID → Gemini when available, Groq fallback
-    if (hasGeminiKey()) {
-      var tierLabel = useModel === MODEL_MID ? 'MID' : 'LIGHT';
-      try {
-        console.log('[AI] Routing to Gemini (' + tierLabel + ' tier)');
-        return await _geminiEnqueue(function() {
-          return _geminiFetchDirect(messages, maxTokens, temperature);
-        });
-      } catch (e) {
-        console.warn('[AI] Gemini FAILED (' + e.message + '), falling back to Groq ' + tierLabel);
-        return _groqEnqueue(function() {
-          return _groqFetchDirect(messages, maxTokens, temperature, opts);
-        }, useModel);
-      }
-    }
-    console.log('[AI] Routing to Groq (' + useModel.split('/').pop() + ') — no Gemini key');
-    return _groqEnqueue(function() {
-      return _groqFetchDirect(messages, maxTokens, temperature, opts);
-    }, useModel);
   }
 
   async function _groqFetchDirect(messages, maxTokens, temperature, opts) {
