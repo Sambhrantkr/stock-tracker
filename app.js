@@ -746,6 +746,12 @@
       btn.disabled = false; btn.textContent = 'Regenerate';
       return;
     }
+    // Show in-progress status if verdict is running for this stock
+    if (_verdictInProgress[symbol]) {
+      contentEl.innerHTML = '<div class="tile-loading">\uD83C\uDFAF ' + _verdictInProgress[symbol] + '</div>';
+      btn.disabled = true; btn.textContent = 'Running\u2026';
+      return;
+    }
     if (!NewsAI.hasKey()) { contentEl.innerHTML = '<div class="tile-loading">Add a Groq API key to enable.</div>'; btn.disabled = true; return; }
     // Need at least quote + some other data
     if (!c.quote) { contentEl.innerHTML = '<div class="tile-loading">Waiting for data to load...</div>'; btn.disabled = true; return; }
@@ -805,18 +811,22 @@
     return { available: available, missing: missing, stale: stale, ageMin: ageMin, summary: summary };
   }
 
+  // Track in-progress verdicts so the tile can show status when switching back
+  var _verdictInProgress = {}; // symbol → step message
+
   async function runVerdict(symbol) {
-    var isSelected = (selectedSymbol === symbol);
     var contentEl = document.getElementById('detail-verdict-content');
     var btn = document.getElementById('detail-verdict-btn');
     var c = cache[symbol];
     if (!NewsAI.hasKey() || !c) return null;
-    if (isSelected) { btn.disabled = true; btn.textContent = 'Preparing\u2026'; }
+    _verdictInProgress[symbol] = 'Preparing...';
+    if (selectedSymbol === symbol) { btn.disabled = true; btn.textContent = 'Preparing\u2026'; }
     var step = 0;
     var totalSteps = 14;
     function progress(msg) {
       step++;
-      if (isSelected) contentEl.innerHTML = '<div class="tile-loading">' + msg + '<br><span style="font-size:0.6rem;color:var(--muted);">Step ' + step + '/' + totalSteps + '</span></div>';
+      _verdictInProgress[symbol] = msg + ' (Step ' + step + '/' + totalSteps + ')';
+      if (selectedSymbol === symbol) contentEl.innerHTML = '<div class="tile-loading">' + msg + '<br><span style="font-size:0.6rem;color:var(--muted);">Step ' + step + '/' + totalSteps + '</span></div>';
     }
 
     // Check data freshness — refresh if older than 10 minutes
@@ -828,14 +838,14 @@
       try {
         await loadStockData(symbol, s.type || 'Equity');
       } catch (e) {
-        if (isSelected) showWarning('Data refresh had issues: ' + e.message + '. Proceeding with available data.');
+        if (selectedSymbol === symbol) showWarning('Data refresh had issues: ' + e.message + '. Proceeding with available data.');
       }
       c = cache[symbol];
       if (!c) return null;
     }
 
     // ── PHASE 1: Load all on-demand data tiles ──
-    if (isSelected) btn.textContent = 'Loading data\u2026';
+    if (selectedSymbol === symbol) btn.textContent = 'Loading data\u2026';
 
     // Technicals (RSI, MACD, SMA + AI)
     if (AlphaAPI.hasKey() && (!c.rsiData || !c.rsiData.length)) {
@@ -880,7 +890,7 @@
     }
 
     // ── PHASE 2: Run all pending AI analyses ──
-    if (isSelected) btn.textContent = 'Running AI tiles\u2026';
+    if (selectedSymbol === symbol) btn.textContent = 'Running AI tiles\u2026';
 
     // News AI
     if (c.articles && c.articles.length && !c.aiResult && NewsAI.hasKey()) {
@@ -918,22 +928,25 @@
     }
 
     // ── PHASE 3: Senior Analyst deep analysis ──
-    if (isSelected) btn.textContent = 'Deep analysis\u2026';
+    if (selectedSymbol === symbol) btn.textContent = 'Deep analysis\u2026';
     var inventory = buildDataInventory(c);
-    if (isSelected) contentEl.innerHTML = '<div class="tile-loading">\uD83C\uDFAF Senior analyst performing deep analysis on ' + symbol + '...<br><span style="font-size:0.65rem;color:var(--muted);">Groq 70b' + (NewsAI.hasGeminiKey() ? ' (Gemini fallback)' : '') + ' \u2022 ' + inventory.summary + '</span></div>';
+    _verdictInProgress[symbol] = '\uD83C\uDFAF Deep analysis in progress...';
+    if (selectedSymbol === symbol) contentEl.innerHTML = '<div class="tile-loading">\uD83C\uDFAF Senior analyst performing deep analysis on ' + symbol + '...<br><span style="font-size:0.65rem;color:var(--muted);">Groq 70b' + (NewsAI.hasGeminiKey() ? ' (Gemini fallback)' : '') + ' \u2022 ' + inventory.summary + '</span></div>';
     try {
       c.verdictResult = await NewsAI.generateVerdict(
         symbol,
         c.profile ? c.profile.name : symbol,
         c
       );
-      if (isSelected) renderVerdictHTML(contentEl, c.verdictResult);
+      delete _verdictInProgress[symbol];
+      if (selectedSymbol === symbol) renderVerdictHTML(contentEl, c.verdictResult);
       return c.verdictResult;
     } catch (err) {
-      if (isSelected) contentEl.innerHTML = '<div class="error-msg">' + err.message + '</div>';
+      delete _verdictInProgress[symbol];
+      if (selectedSymbol === symbol) contentEl.innerHTML = '<div class="error-msg">' + err.message + '</div>';
       throw err;
     }
-    finally { if (isSelected) { btn.textContent = 'Regenerate'; btn.disabled = false; } }
+    finally { if (selectedSymbol === symbol) { btn.textContent = 'Regenerate'; btn.disabled = false; } }
   }
 
   function renderVerdictHTML(el, v) {
@@ -3518,8 +3531,8 @@
       delete nc.transcriptCachedPeriod;
       delete nc.avTranscript;
     }
-    // Invalidate verdict on refresh — but preserve if morning report just generated it
-    if (!morningReportRunning) {
+    // Invalidate verdict on refresh — but preserve if morning report or verdict is in progress
+    if (!morningReportRunning && !_verdictInProgress[symbol]) {
       delete nc.verdictResult;
     }
 

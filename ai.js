@@ -197,23 +197,23 @@ const NewsAI = (() => {
   }
 
   /**
-   * Smart fetch: routes LIGHT+MID to Gemini, DEEP to Groq (best reasoning).
-   * Falls back between providers. Auto-retries on any failure with delay.
+   * Smart fetch with dual-provider routing and auto-retry.
+   * LIGHT+MID → Gemini primary, Groq fallback
+   * DEEP → Groq only (don't compete with Gemini queue)
    */
   async function groqFetch(messages, maxTokens, temperature, opts) {
     var useModel = (opts && opts.model) || MODEL_LIGHT;
     var isDeep = (useModel === MODEL_DEEP);
     var lastError = null;
 
-    // Try up to 3 times with increasing delays
     for (var retry = 0; retry < 3; retry++) {
       if (retry > 0) {
-        var waitSec = 10 + retry * 15; // 25s, 40s
+        var waitSec = 15 + retry * 15; // 30s, 45s
         console.log('[AI] Retry ' + retry + '/2 — waiting ' + waitSec + 's...');
         await new Promise(function(r) { setTimeout(r, waitSec * 1000); });
       }
 
-      // === DEEP tier: Groq 70b primary, Gemini fallback ===
+      // === DEEP tier: Groq 70b only (retries on same provider) ===
       if (isDeep) {
         try {
           console.log('[AI] → Groq DEEP (70b)' + (retry ? ' [retry ' + retry + ']' : ''));
@@ -223,19 +223,7 @@ const NewsAI = (() => {
         } catch (e) {
           console.warn('[AI] Groq DEEP failed: ' + e.message);
           lastError = e;
-          if (hasGeminiKey()) {
-            try {
-              console.log('[AI] → Gemini fallback (DEEP)');
-              return await _geminiEnqueue(function() {
-                return _geminiFetchDirect(messages, maxTokens, temperature);
-              });
-            } catch (e2) {
-              console.warn('[AI] Gemini fallback also failed: ' + e2.message);
-              lastError = e2;
-              continue; // retry the whole cycle
-            }
-          }
-          continue;
+          continue; // wait and retry Groq — don't pile onto Gemini
         }
       }
 
@@ -544,157 +532,79 @@ const NewsAI = (() => {
   async function generateVerdict(symbol, companyName, allData) {
     if (!hasKey()) throw new Error('Groq API key required.');
 
-    // ── SYSTEM PERSONA ──
-    var sysMsg = 'You are Marcus Chen, CFA, CMT — Managing Director and Head of Cross-Asset Equity Research.\n';
-    sysMsg += 'Background: 25 years at Goldman Sachs, Morgan Stanley, and your own fund. You have covered every sector.\n';
-    sysMsg += 'You are known on Wall Street for:\n';
-    sysMsg += '- Calling inflection points 6-12 months before consensus (you spotted NVDA AI thesis in 2022, warned on SVB in late 2022)\n';
-    sysMsg += '- Rigorous multi-factor analysis: you never rely on a single signal\n';
-    sysMsg += '- Brutal honesty: you call overvalued stocks overvalued even when they are popular. You do not sugarcoat.\n';
-    sysMsg += '- Quantitative grounding: every price target is backed by math (DCF, multiples, or peer-relative valuation)\n';
-    sysMsg += '- Integrating macro regime, technicals, sentiment, and fundamentals into one coherent thesis\n\n';
-    sysMsg += 'YOUR ANALYTICAL PROCESS (you MUST follow this mental framework before writing your verdict):\n\n';
-    sysMsg += 'STEP 1 — BUSINESS QUALITY ASSESSMENT\n';
-    sysMsg += '  Ask: Is this a good business? What is the moat? Are margins sustainable? How does ROIC compare to cost of capital?\n';
-    sysMsg += '  Look at: Gross/operating/net margins, ROE, ROIC, competitive position, sector dynamics.\n\n';
-    sysMsg += 'STEP 2 — GROWTH TRAJECTORY\n';
-    sysMsg += '  Ask: Is growth accelerating, stable, or decelerating? Is it organic or acquisition-driven?\n';
-    sysMsg += '  Look at: Revenue growth (1Y/3Y/5Y), EPS growth, quarterly trends, management guidance.\n\n';
-    sysMsg += 'STEP 3 — FINANCIAL HEALTH & CASH FLOW\n';
-    sysMsg += '  Ask: Can this company fund its growth? Is the balance sheet a weapon or a liability?\n';
-    sysMsg += '  Look at: FCF generation, debt/equity, current ratio, cash position, capex trends, buybacks.\n\n';
-    sysMsg += 'STEP 4 — VALUATION (most critical step)\n';
-    sysMsg += '  Ask: What is this stock WORTH vs. what is it PRICED at? Is the market right or wrong?\n';
-    sysMsg += '  Methods: (a) P/E vs peers and history, (b) EV/EBITDA vs peers, (c) P/S for growth stocks, (d) DCF if cash flow data available.\n';
-    sysMsg += '  DCF approach: Use latest FCF as base. Estimate 5Y growth from historical trends. WACC=10%. Terminal growth=2.5-3%. Shares = Market Cap / Price.\n';
-    sysMsg += '  Your price target MUST come from one of these methods. State which method you used.\n\n';
-    sysMsg += 'STEP 5 — CATALYST & RISK MAPPING (NEWS-DRIVEN)\n';
-    sysMsg += '  Ask: What specific events in the next 12 months could move this stock 10%+ in either direction?\n';
-    sysMsg += '  Look at: Earnings dates, product launches, regulatory events, macro shifts, insider activity.\n';
-    sysMsg += '  CRITICAL: Pay close attention to the NEWS AI triggers and MACRO AI factors in Section 14.\n';
-    sysMsg += '  For companies with new business lines (e.g. robotaxis, AI, energy, cloud), news about launches, regulatory approvals,\n';
-    sysMsg += '  partnerships, or competitive threats can have OUTSIZED valuation impact — often more than traditional metrics.\n';
-    sysMsg += '  If news reveals a major catalyst (product launch, new market entry, regulatory win/loss), it MUST be reflected in your price target and thesis.\n\n';
-    sysMsg += 'STEP 6 — SIGNAL CONVERGENCE\n';
-    sysMsg += '  Ask: Are technicals, sentiment, insiders, and analysts all pointing the same direction? Or is there divergence?\n';
-    sysMsg += '  Convergence = higher confidence. Divergence = lower confidence. Note any contradictions explicitly.\n\n';
-    sysMsg += 'STEP 7 — FINAL SYNTHESIS\n';
-    sysMsg += '  Weigh all 8 steps. Assign verdict and confidence. Write your thesis as if presenting to the investment committee.\n';
-    sysMsg += '  You MUST integrate news catalysts and macro factors into your thesis — do not treat them as secondary.\n';
-    sysMsg += '  For innovation-driven companies, news about new products/services can justify premium valuations or signal risks.\n';
-    sysMsg += '  STRONG BUY/SELL require HIGH confidence + clear catalysts + valuation support. Use sparingly.\n\n';
-    sysMsg += 'STEP 8 — EARNINGS ESTIMATE MOMENTUM\n';
-    sysMsg += '  Ask: Are analyst EPS estimates rising or falling over recent quarters? Rising estimates = positive earnings revision cycle. Falling = negative.\n';
-    sysMsg += '  Cross-reference with actual earnings beat/miss rate. A stock that consistently beats AND has rising estimates is in a powerful uptrend.\n';
-    sysMsg += '  A stock with falling estimates AND misses is in a negative revision cycle — avoid or short.\n\n';
-    sysMsg += 'RULES:\n';
-    sysMsg += '- Never fabricate data. If something is missing, say so and lower confidence.\n';
-    sysMsg += '- Distinguish between what the data SHOWS vs. what you INFER.\n';
-    sysMsg += '- Be contrarian when data supports it. Do not default to consensus.\n';
-    sysMsg += '- Price target must be a specific number derived from valuation work.\n';
-    sysMsg += '- Always respond in the exact JSON format requested. No markdown, no commentary outside JSON.';
+    // ── SYSTEM PERSONA (condensed) ──
+    var sysMsg = 'You are Marcus Chen, CFA, CMT — MD & Head of Cross-Asset Equity Research. 25yr veteran (GS, MS, own fund).\n';
+    sysMsg += 'Known for: calling inflection points early, rigorous multi-factor analysis, brutal honesty, quantitative price targets.\n\n';
+    sysMsg += 'ANALYTICAL FRAMEWORK (follow before writing verdict):\n';
+    sysMsg += '1. BUSINESS QUALITY: Moat, margins (gross/op/net), ROE, ROIC vs cost of capital\n';
+    sysMsg += '2. GROWTH: Revenue/EPS growth trajectory (1Y/3Y/5Y), organic vs acquired, guidance\n';
+    sysMsg += '3. FINANCIAL HEALTH: FCF, debt/equity, current ratio, cash, capex\n';
+    sysMsg += '4. VALUATION: P/E vs peers+history, EV/EBITDA, P/S, DCF if cash flow available. Price target MUST use one method.\n';
+    sysMsg += '   DCF: latest FCF base, 5Y growth from trend, WACC=10%, terminal=2.5-3%, shares=MCap/Price\n';
+    sysMsg += '5. CATALYSTS & RISKS: News-driven events that could move stock 10%+. Check news/macro sections carefully.\n';
+    sysMsg += '   New business lines (AI, robotaxis, etc.) can have outsized impact — reflect in price target.\n';
+    sysMsg += '6. SIGNAL CONVERGENCE: Do technicals, sentiment, insiders, analysts agree? Divergence = lower confidence.\n';
+    sysMsg += '7. SYNTHESIS: Integrate all factors. STRONG BUY/SELL need HIGH confidence + catalysts + valuation support.\n';
+    sysMsg += '8. EPS MOMENTUM: Rising estimates + beats = strong. Falling + misses = weak.\n\n';
+    sysMsg += 'RULES: No fabrication. Data SHOWS vs INFER. Be contrarian when supported. Specific price target. JSON only.';
 
-    // ── BUILD STRUCTURED DATA BRIEFING ──
+    // ── BUILD COMPACT DATA BRIEFING (token-optimized) ──
     var b = '';
-    var ageMin = allData._dataLoadedAt ? Math.round((Date.now() - allData._dataLoadedAt) / 60000) : -1;
     var today = new Date();
+    b += 'BRIEFING: ' + symbol + ' (' + (companyName || symbol) + ') | ' + today.toISOString().split('T')[0] + '\n\n';
 
-    b += '================================================================\n';
-    b += '  EQUITY RESEARCH BRIEFING: ' + symbol + ' (' + (companyName || symbol) + ')\n';
-    b += '  Date: ' + today.toISOString().split('T')[0] + ' | Data Age: ' + (ageMin < 0 ? 'Unknown' : ageMin < 1 ? 'Live' : ageMin + ' min') + '\n';
-    b += '================================================================\n\n';
-
-    // ── SECTION 1: PRICE & TRADING DATA ──
-    b += '┌─ SECTION 1: PRICE & TRADING DATA ─────────────────────────────┐\n';
+    // ── SECTION 1: PRICE ──
+    b += '[PRICE]\n';
     if (allData.quote) {
       var q = allData.quote;
-      b += '  Current Price:  $' + q.price.toFixed(2) + '\n';
-      b += '  Day Change:     ' + (q.change >= 0 ? '+' : '') + q.change.toFixed(2) + ' (' + q.changePct.toFixed(2) + '%)\n';
-      b += '  Day Range:      $' + q.low.toFixed(2) + ' - $' + q.high.toFixed(2) + '\n';
-      b += '  Prev Close:     $' + q.prevClose.toFixed(2) + '\n';
-    } else { b += '  [NO LIVE QUOTE AVAILABLE]\n'; }
-    b += '└──────────────────────────────────────────────────────────────┘\n\n';
+      b += 'Price: $' + q.price.toFixed(2) + ' | Chg: ' + (q.change >= 0 ? '+' : '') + q.change.toFixed(2) + ' (' + q.changePct.toFixed(2) + '%) | Range: $' + q.low.toFixed(2) + '-$' + q.high.toFixed(2) + '\n';
+    } else { b += '[NO QUOTE]\n'; }
 
-    // ── SECTION 2: COMPANY PROFILE ──
-    b += '┌─ SECTION 2: COMPANY PROFILE ──────────────────────────────────┐\n';
+    // ── SECTION 2: PROFILE (compact) ──
+    b += '\n[PROFILE]\n';
     if (allData.profile) {
       var p = allData.profile;
-      b += '  Name:           ' + (p.name || symbol) + '\n';
-      b += '  Sector:         ' + (p.sector || 'N/A') + '\n';
-      b += '  Market Cap:     ' + (p.marketCap ? '$' + (p.marketCap / 1e9).toFixed(1) + 'B' : 'N/A') + '\n';
-      b += '  Exchange:       ' + (p.exchange || 'N/A') + '\n';
-    } else { b += '  [NO PROFILE DATA]\n'; }
-    if (allData.avOverview) {
-      var avo = allData.avOverview;
-      if (avo.Description) b += '  Description:    ' + avo.Description.substring(0, 300) + (avo.Description.length > 300 ? '...' : '') + '\n';
-      if (avo.FullTimeEmployees) b += '  Employees:      ' + avo.FullTimeEmployees + '\n';
+      b += (p.name || symbol) + ' | ' + (p.sector || 'N/A') + ' | MCap: ' + (p.marketCap ? '$' + (p.marketCap / 1e9).toFixed(1) + 'B' : 'N/A') + '\n';
     }
-    b += '└──────────────────────────────────────────────────────────────┘\n\n';
+    if (allData.avOverview && allData.avOverview.Description) {
+      b += allData.avOverview.Description.substring(0, 150) + '...\n';
+    }
 
-    // ── SECTION 3: KEY VALUATION METRICS ──
-    b += '┌─ SECTION 3: VALUATION METRICS ────────────────────────────────┐\n';
+    // ── SECTION 3: VALUATION METRICS ──
+    b += '\n[VALUATION]\n';
     if (allData.financials) {
       var f = allData.financials;
-      b += '  P/E (TTM):      ' + (f.peRatio || 'N/A') + '\n';
       var fwdPE = 'N/A';
       if (allData.avOverview && allData.avOverview.ForwardPE && allData.avOverview.ForwardPE !== 'None') fwdPE = allData.avOverview.ForwardPE;
-      b += '  Forward P/E:    ' + fwdPE + '\n';
-      b += '  EPS (TTM):      ' + (f.eps || 'N/A') + '\n';
-      b += '  52W High:       ' + (f.week52High || 'N/A') + '\n';
-      b += '  52W Low:        ' + (f.week52Low || 'N/A') + '\n';
-      b += '  Beta:           ' + (f.beta || 'N/A') + '\n';
-      b += '  Div Yield:      ' + (f.dividendYield || 'N/A') + '\n';
-    } else { b += '  [NO FINANCIAL METRICS]\n'; }
+      b += 'P/E=' + (f.peRatio || 'N/A') + ' | FwdP/E=' + fwdPE + ' | EPS=' + (f.eps || 'N/A') + ' | Beta=' + (f.beta || 'N/A') + ' | DivYld=' + (f.dividendYield || 'N/A') + '\n';
+      b += '52W: ' + (f.week52Low || 'N/A') + ' - ' + (f.week52High || 'N/A') + '\n';
+    }
     if (allData.avOverview) {
       var av = allData.avOverview;
-      if (av.PriceToBookRatio) b += '  P/B Ratio:      ' + av.PriceToBookRatio + '\n';
-      if (av.EVToEBITDA) b += '  EV/EBITDA:      ' + av.EVToEBITDA + '\n';
-      if (av.PriceToSalesRatioTTM) b += '  P/S Ratio:      ' + av.PriceToSalesRatioTTM + '\n';
-      if (av.EVToRevenue) b += '  EV/Revenue:     ' + av.EVToRevenue + '\n';
-    }
-    b += '└──────────────────────────────────────────────────────────────┘\n\n';
-
-    // ── SECTION 3B: VALUATION SCORECARD (pre-computed) ──
-    if (allData.financials && allData.avOverview) {
-      var vf = allData.financials;
-      var vav = allData.avOverview;
-      b += '┌─ SECTION 3B: VALUATION SCORECARD (pre-computed) ────────────┐\n';
-      var pe = parseFloat(vf.peRatio) || 0;
-      var pb = parseFloat(vav.PriceToBookRatio) || 0;
-      var ps = parseFloat(vav.PriceToSalesRatioTTM) || 0;
-      var peg = parseFloat(vav.PEGRatio) || 0;
-      var peScore = pe <= 0 ? 'N/A' : pe < 10 ? '10 (deep value)' : pe < 15 ? '8 (value)' : pe < 20 ? '6 (fair)' : pe < 30 ? '4 (growth premium)' : pe < 50 ? '2 (expensive)' : '1 (extreme)';
-      var pbScore = pb <= 0 ? 'N/A' : pb < 1 ? '10 (below book)' : pb < 2 ? '7 (fair)' : pb < 5 ? '4 (premium)' : '2 (expensive)';
-      var psScore = ps <= 0 ? 'N/A' : ps < 1 ? '10 (deep value)' : ps < 3 ? '7 (fair)' : ps < 8 ? '4 (growth)' : '2 (expensive)';
-      var pegScore = peg <= 0 ? 'N/A' : peg < 1 ? '10 (undervalued)' : peg < 1.5 ? '7 (fair)' : peg < 2 ? '4 (rich)' : '2 (overvalued)';
-      b += '  P/E Score:      ' + peScore + ' (P/E=' + (pe || 'N/A') + ')\n';
-      b += '  P/B Score:      ' + pbScore + ' (P/B=' + (pb || 'N/A') + ')\n';
-      b += '  P/S Score:      ' + psScore + ' (P/S=' + (ps || 'N/A') + ')\n';
-      b += '  PEG Score:      ' + pegScore + ' (PEG=' + (peg || 'N/A') + ')\n';
-      b += '└──────────────────────────────────────────────────────────────┘\n\n';
+      var valParts = [];
+      if (av.PriceToBookRatio) valParts.push('P/B=' + av.PriceToBookRatio);
+      if (av.EVToEBITDA) valParts.push('EV/EBITDA=' + av.EVToEBITDA);
+      if (av.PriceToSalesRatioTTM) valParts.push('P/S=' + av.PriceToSalesRatioTTM);
+      if (av.EVToRevenue) valParts.push('EV/Rev=' + av.EVToRevenue);
+      if (av.PEGRatio) valParts.push('PEG=' + av.PEGRatio);
+      if (valParts.length) b += valParts.join(' | ') + '\n';
     }
 
     // ── SECTION 4: GROWTH & MARGINS ──
-    b += '┌─ SECTION 4: GROWTH & PROFITABILITY ───────────────────────────┐\n';
+    b += '\n[GROWTH & MARGINS]\n';
     if (allData.financials) {
       var ef = allData.financials;
-      b += '  Revenue Growth:  1Y=' + (ef.revenueGrowth1Y != null ? ef.revenueGrowth1Y.toFixed(1) + '%' : 'N/A') + ', 3Y=' + (ef.revenueGrowth3Y != null ? ef.revenueGrowth3Y.toFixed(1) + '%' : 'N/A') + ', 5Y=' + (ef.revenueGrowth5Y != null ? ef.revenueGrowth5Y.toFixed(1) + '%' : 'N/A') + '\n';
-      b += '  EPS Growth:      1Y=' + (ef.epsGrowth != null ? ef.epsGrowth.toFixed(1) + '%' : 'N/A') + ', 3Y=' + (ef.epsGrowth3Y != null ? ef.epsGrowth3Y.toFixed(1) + '%' : 'N/A') + ', 5Y=' + (ef.epsGrowth5Y != null ? ef.epsGrowth5Y.toFixed(1) + '%' : 'N/A') + '\n';
-      b += '  Gross Margin:    ' + (ef.grossMargin != null ? ef.grossMargin.toFixed(1) + '%' : 'N/A') + '\n';
-      b += '  Operating Margin:' + (ef.operatingMargin != null ? ef.operatingMargin.toFixed(1) + '%' : 'N/A') + '\n';
-      b += '  Net Margin:      ' + (ef.netMargin != null ? ef.netMargin.toFixed(1) + '%' : 'N/A') + '\n';
-      b += '  ROE:             ' + (ef.roeTTM != null ? ef.roeTTM.toFixed(1) + '%' : 'N/A') + '\n';
-      b += '  ROIC:            ' + (ef.roicTTM != null ? ef.roicTTM.toFixed(1) + '%' : 'N/A') + '\n';
-      b += '  D/E Ratio:       ' + (ef.debtEquity != null ? ef.debtEquity.toFixed(2) : 'N/A') + '\n';
-      b += '  Current Ratio:   ' + (ef.currentRatio != null ? ef.currentRatio.toFixed(2) : 'N/A') + '\n';
-    } else { b += '  [NO GROWTH/MARGIN DATA]\n'; }
-    b += '└──────────────────────────────────────────────────────────────┘\n\n';
+      b += 'RevGrowth: 1Y=' + (ef.revenueGrowth1Y != null ? ef.revenueGrowth1Y.toFixed(1) + '%' : 'N/A') + ' 3Y=' + (ef.revenueGrowth3Y != null ? ef.revenueGrowth3Y.toFixed(1) + '%' : 'N/A') + ' 5Y=' + (ef.revenueGrowth5Y != null ? ef.revenueGrowth5Y.toFixed(1) + '%' : 'N/A') + '\n';
+      b += 'EPSGrowth: 1Y=' + (ef.epsGrowth != null ? ef.epsGrowth.toFixed(1) + '%' : 'N/A') + ' 3Y=' + (ef.epsGrowth3Y != null ? ef.epsGrowth3Y.toFixed(1) + '%' : 'N/A') + ' 5Y=' + (ef.epsGrowth5Y != null ? ef.epsGrowth5Y.toFixed(1) + '%' : 'N/A') + '\n';
+      b += 'Margins: Gross=' + (ef.grossMargin != null ? ef.grossMargin.toFixed(1) + '%' : 'N/A') + ' Op=' + (ef.operatingMargin != null ? ef.operatingMargin.toFixed(1) + '%' : 'N/A') + ' Net=' + (ef.netMargin != null ? ef.netMargin.toFixed(1) + '%' : 'N/A') + '\n';
+      b += 'ROE=' + (ef.roeTTM != null ? ef.roeTTM.toFixed(1) + '%' : 'N/A') + ' ROIC=' + (ef.roicTTM != null ? ef.roicTTM.toFixed(1) + '%' : 'N/A') + ' D/E=' + (ef.debtEquity != null ? ef.debtEquity.toFixed(2) : 'N/A') + ' CurRatio=' + (ef.currentRatio != null ? ef.currentRatio.toFixed(2) : 'N/A') + '\n';
+    }
 
-    // ── SECTION 5: EARNINGS TRACK RECORD ──
-    b += '┌─ SECTION 5: EARNINGS HISTORY ─────────────────────────────────┐\n';
+    // ── SECTION 5: EARNINGS (compact) ──
+    b += '\n[EARNINGS]\n';
     if (allData.earnings && allData.earnings.length) {
       var beats = 0, total = 0;
-      allData.earnings.forEach(function(e) {
+      allData.earnings.slice(0, 4).forEach(function(e) {
         var result = '';
         if (e.actual != null && e.estimate != null) {
           total++;
@@ -702,155 +612,117 @@ const NewsAI = (() => {
           else if (e.actual < e.estimate) result = ' MISS';
           else result = ' MET';
         }
-        b += '  ' + e.period + ': EPS $' + (e.actual != null ? e.actual.toFixed(2) : 'N/A') + ' vs Est $' + (e.estimate != null ? e.estimate.toFixed(2) : 'N/A') + result + '\n';
+        b += e.period + ': $' + (e.actual != null ? e.actual.toFixed(2) : 'N/A') + ' vs $' + (e.estimate != null ? e.estimate.toFixed(2) : 'N/A') + result + '\n';
       });
-      if (total > 0) b += '  Beat Rate: ' + Math.round(beats / total * 100) + '% (' + beats + '/' + total + ')\n';
-    } else { b += '  [NO EARNINGS DATA]\n'; }
+      if (total > 0) b += 'Beat Rate: ' + Math.round(beats / total * 100) + '% (' + beats + '/' + total + ')\n';
+    } else { b += '[NO EARNINGS DATA]\n'; }
     if (allData.earningsCalendar) {
       var ec = allData.earningsCalendar;
       var daysUntil = Math.ceil((new Date(ec.date) - new Date()) / 86400000);
-      b += '  NEXT EARNINGS: ' + ec.date + ' (' + daysUntil + ' days)';
-      if (ec.epsEstimate != null) b += ', Est EPS $' + ec.epsEstimate.toFixed(2);
+      b += 'NEXT: ' + ec.date + ' (' + daysUntil + 'd)';
+      if (ec.epsEstimate != null) b += ' Est $' + ec.epsEstimate.toFixed(2);
       b += '\n';
     }
-    b += '└──────────────────────────────────────────────────────────────┘\n\n';
 
-    // ── SECTION 6: CASH FLOW & BALANCE SHEET ──
-    b += '┌─ SECTION 6: CASH FLOW & BALANCE SHEET ────────────────────────┐\n';
+    // ── SECTION 6: CASH FLOW & BALANCE SHEET (latest 2 quarters only) ──
+    b += '\n[CASH FLOW]\n';
     if (allData.cashFlowData && allData.cashFlowData.length) {
-      b += '  CASH FLOW (quarterly):\n';
-      allData.cashFlowData.forEach(function(cf) {
+      allData.cashFlowData.slice(0, 2).forEach(function(cf) {
         var yr = (cf.date || '').substring(0, 7);
-        var opCF = cf.operatingCashFlow != null ? '$' + (cf.operatingCashFlow / 1e9).toFixed(2) + 'B' : 'N/A';
-        var capex = cf.capitalExpenditure != null ? '$' + (cf.capitalExpenditure / 1e9).toFixed(2) + 'B' : 'N/A';
-        var fcf = cf.freeCashFlow != null ? '$' + (cf.freeCashFlow / 1e9).toFixed(2) + 'B' : 'N/A';
-        var divPaid = cf.dividendPayout != null ? '$' + (cf.dividendPayout / 1e9).toFixed(2) + 'B' : 'N/A';
-        var ni = cf.netIncome != null ? '$' + (cf.netIncome / 1e9).toFixed(2) + 'B' : 'N/A';
-        b += '    ' + yr + ': OpCF=' + opCF + ' | CapEx=' + capex + ' | FCF=' + fcf + ' | Div=' + divPaid + ' | NetInc=' + ni + '\n';
+        b += yr + ': OpCF=$' + (cf.operatingCashFlow != null ? (cf.operatingCashFlow / 1e9).toFixed(2) + 'B' : 'N/A');
+        b += ' CapEx=$' + (cf.capitalExpenditure != null ? (cf.capitalExpenditure / 1e9).toFixed(2) + 'B' : 'N/A');
+        b += ' FCF=$' + (cf.freeCashFlow != null ? (cf.freeCashFlow / 1e9).toFixed(2) + 'B' : 'N/A');
+        b += ' NI=$' + (cf.netIncome != null ? (cf.netIncome / 1e9).toFixed(2) + 'B' : 'N/A') + '\n';
       });
-    } else { b += '  [NO CASH FLOW DATA — DCF not possible]\n'; }
-    b += '\n';
+    } else { b += '[NO CASH FLOW — DCF not possible]\n'; }
     if (allData.balanceSheetData && allData.balanceSheetData.length) {
-      b += '  BALANCE SHEET (quarterly):\n';
-      allData.balanceSheetData.forEach(function(bs) {
+      b += '[BALANCE SHEET]\n';
+      allData.balanceSheetData.slice(0, 2).forEach(function(bs) {
         var yr = (bs.date || '').substring(0, 7);
-        var assets = bs.totalAssets != null ? '$' + (bs.totalAssets / 1e9).toFixed(2) + 'B' : 'N/A';
-        var liab = bs.totalLiabilities != null ? '$' + (bs.totalLiabilities / 1e9).toFixed(2) + 'B' : 'N/A';
-        var bv = bs.bookValue != null ? '$' + (bs.bookValue / 1e9).toFixed(2) + 'B' : 'N/A';
-        var cashVal = bs.cash != null ? '$' + (bs.cash / 1e9).toFixed(2) + 'B' : 'N/A';
-        var debt = bs.totalDebt != null ? '$' + (bs.totalDebt / 1e9).toFixed(2) + 'B' : 'N/A';
-        b += '    ' + yr + ': Assets=' + assets + ' | Liab=' + liab + ' | BookVal=' + bv + ' | Cash=' + cashVal + ' | Debt=' + debt + '\n';
+        b += yr + ': Assets=$' + (bs.totalAssets != null ? (bs.totalAssets / 1e9).toFixed(1) + 'B' : 'N/A');
+        b += ' Liab=$' + (bs.totalLiabilities != null ? (bs.totalLiabilities / 1e9).toFixed(1) + 'B' : 'N/A');
+        b += ' Cash=$' + (bs.cash != null ? (bs.cash / 1e9).toFixed(1) + 'B' : 'N/A');
+        b += ' Debt=$' + (bs.totalDebt != null ? (bs.totalDebt / 1e9).toFixed(1) + 'B' : 'N/A') + '\n';
       });
-    } else { b += '  [NO BALANCE SHEET DATA]\n'; }
-    b += '└──────────────────────────────────────────────────────────────┘\n\n';
-
-    // ── SECTION 6B: REVENUE & INCOME TRENDS ──
+    }
     if (allData.incomeData && allData.incomeData.length) {
-      b += '┌─ SECTION 6B: REVENUE & INCOME TRENDS ────────────────────────┐\n';
-      allData.incomeData.forEach(function(inc) {
+      b += '[INCOME]\n';
+      allData.incomeData.slice(0, 2).forEach(function(inc) {
         var yr = (inc.date || '').substring(0, 7);
-        var rev = inc.revenue != null ? '$' + (inc.revenue / 1e9).toFixed(2) + 'B' : 'N/A';
-        var ni = inc.netIncome != null ? '$' + (inc.netIncome / 1e9).toFixed(2) + 'B' : 'N/A';
-        var gp = inc.grossProfit != null ? '$' + (inc.grossProfit / 1e9).toFixed(2) + 'B' : 'N/A';
-        var oi = inc.operatingIncome != null ? '$' + (inc.operatingIncome / 1e9).toFixed(2) + 'B' : 'N/A';
-        b += '    ' + yr + ': Rev=' + rev + ' | GP=' + gp + ' | OpInc=' + oi + ' | NetInc=' + ni + '\n';
+        b += yr + ': Rev=$' + (inc.revenue != null ? (inc.revenue / 1e9).toFixed(2) + 'B' : 'N/A');
+        b += ' GP=$' + (inc.grossProfit != null ? (inc.grossProfit / 1e9).toFixed(2) + 'B' : 'N/A');
+        b += ' OpInc=$' + (inc.operatingIncome != null ? (inc.operatingIncome / 1e9).toFixed(2) + 'B' : 'N/A');
+        b += ' NI=$' + (inc.netIncome != null ? (inc.netIncome / 1e9).toFixed(2) + 'B' : 'N/A') + '\n';
       });
-      b += '└──────────────────────────────────────────────────────────────┘\n\n';
     }
 
-    // ── SECTION 7: DIVIDENDS ──
+    // ── SECTION 7: DIVIDENDS (1 line) ──
     var divYield = (allData.financials && allData.financials.dividendYield) ? allData.financials.dividendYield : null;
     var avDiv = allData.avOverview || {};
     if (divYield || (avDiv.DividendPerShare && avDiv.DividendPerShare !== 'None')) {
-      b += '┌─ SECTION 7: DIVIDENDS ────────────────────────────────────────┐\n';
-      if (divYield) b += '  Yield:          ' + divYield + '\n';
-      if (avDiv.DividendPerShare && avDiv.DividendPerShare !== 'None') b += '  Per Share:      $' + avDiv.DividendPerShare + '\n';
-      if (avDiv.PayoutRatio && avDiv.PayoutRatio !== 'None') b += '  Payout Ratio:   ' + (parseFloat(avDiv.PayoutRatio) * 100).toFixed(1) + '%\n';
-      if (avDiv.ExDividendDate && avDiv.ExDividendDate !== 'None') b += '  Ex-Div Date:    ' + avDiv.ExDividendDate + '\n';
-      b += '└──────────────────────────────────────────────────────────────┘\n\n';
+      b += '\n[DIVIDENDS] Yield=' + (divYield || 'N/A');
+      if (avDiv.DividendPerShare && avDiv.DividendPerShare !== 'None') b += ' DPS=$' + avDiv.DividendPerShare;
+      if (avDiv.PayoutRatio && avDiv.PayoutRatio !== 'None') b += ' Payout=' + (parseFloat(avDiv.PayoutRatio) * 100).toFixed(1) + '%';
+      b += '\n';
     }
 
-    // ── SECTION 8: ANALYST CONSENSUS ──
-    b += '┌─ SECTION 8: WALL STREET CONSENSUS ────────────────────────────┐\n';
+    // ── SECTION 8: ANALYST CONSENSUS (1 line) ──
+    b += '\n[ANALYSTS]\n';
     if (allData.recommendations && allData.recommendations.length) {
       var r = allData.recommendations[0];
-      b += '  Period: ' + r.period + '\n';
-      b += '  Strong Buy=' + (r.strongBuy || 0) + ' | Buy=' + (r.buy || 0) + ' | Hold=' + (r.hold || 0) + ' | Sell=' + (r.sell || 0) + ' | Strong Sell=' + (r.strongSell || 0) + '\n';
-    } else { b += '  [NO ANALYST RATINGS]\n'; }
-    b += '└──────────────────────────────────────────────────────────────┘\n\n';
+      b += r.period + ': StrongBuy=' + (r.strongBuy || 0) + ' Buy=' + (r.buy || 0) + ' Hold=' + (r.hold || 0) + ' Sell=' + (r.sell || 0) + ' StrongSell=' + (r.strongSell || 0) + '\n';
+    } else { b += '[NO RATINGS]\n'; }
 
-    // ── SECTION 9: INSIDER ACTIVITY ──
-    b += '┌─ SECTION 9: INSIDER TRADING ──────────────────────────────────┐\n';
+    // ── SECTION 9: INSIDER ACTIVITY (summary only) ──
+    b += '\n[INSIDERS]\n';
     if (allData.insiderTrades && allData.insiderTrades.length) {
       var iBuys = 0, iSells = 0, iBuyVal = 0, iSellVal = 0;
       allData.insiderTrades.forEach(function(t) {
         if (t.code === 'P' || t.code === 'A') { iBuys++; if (t.price) iBuyVal += Math.abs(t.change) * t.price; }
         else if (t.code === 'S') { iSells++; if (t.price) iSellVal += Math.abs(t.change) * t.price; }
       });
-      var iSignal = 'NEUTRAL';
-      if (iBuys > 0 && iSells === 0) iSignal = 'BULLISH';
-      else if (iBuys > iSells * 1.5) iSignal = 'BULLISH';
-      else if (iSells > iBuys * 1.5) iSignal = 'BEARISH';
-      else if (iSells > 0 && iBuys === 0) iSignal = 'BEARISH';
-      b += '  Transactions: ' + allData.insiderTrades.length + ' | Buys=' + iBuys + ' | Sells=' + iSells + ' | Signal=' + iSignal + '\n';
-      if (iBuyVal > 0) b += '  Total Buy Value:  $' + (iBuyVal / 1e6).toFixed(2) + 'M\n';
-      if (iSellVal > 0) b += '  Total Sell Value: $' + (iSellVal / 1e6).toFixed(2) + 'M\n';
-      var notable = allData.insiderTrades.filter(function(t) { return t.price && t.change; })
-        .sort(function(a, bb) { return Math.abs(bb.change * (bb.price || 0)) - Math.abs(a.change * (a.price || 0)); })
-        .slice(0, 3);
-      if (notable.length) {
-        b += '  Notable:\n';
-        notable.forEach(function(t) {
-          var type = t.code === 'P' ? 'BUY' : t.code === 'S' ? 'SELL' : t.code === 'A' ? 'AWARD' : t.code;
-          b += '    ' + t.name + ' — ' + type + ' $' + (Math.abs(t.change * t.price) / 1e6).toFixed(2) + 'M\n';
-        });
-      }
-    } else { b += '  [NO INSIDER DATA]\n'; }
-    b += '└──────────────────────────────────────────────────────────────┘\n\n';
+      var iSignal = iBuys > iSells * 1.5 ? 'BULLISH' : iSells > iBuys * 1.5 ? 'BEARISH' : 'NEUTRAL';
+      b += allData.insiderTrades.length + ' txns: Buys=' + iBuys + ' Sells=' + iSells + ' Signal=' + iSignal;
+      if (iBuyVal > 0) b += ' BuyVal=$' + (iBuyVal / 1e6).toFixed(1) + 'M';
+      if (iSellVal > 0) b += ' SellVal=$' + (iSellVal / 1e6).toFixed(1) + 'M';
+      b += '\n';
+    } else { b += '[NO INSIDER DATA]\n'; }
 
-    // ── SECTION 10: TECHNICAL INDICATORS ──
-    b += '┌─ SECTION 10: TECHNICAL SIGNALS ─────────────────────────────┐\n';
+    // ── SECTION 10: TECHNICALS (compact) ──
+    b += '\n[TECHNICALS]\n';
     if (allData.technicalsResult) {
       var tech = allData.technicalsResult;
-      b += '  AI Signal:      ' + (tech.signal || 'N/A') + '\n';
-      if (tech.support) b += '  Support:        ' + tech.support + '\n';
-      if (tech.resistance) b += '  Resistance:     ' + tech.resistance + '\n';
-      if (tech.recommendation) b += '  Recommendation: ' + tech.recommendation + '\n';
-      if (tech.summary) b += '  AI Summary:     ' + tech.summary + '\n';
-      if (tech.indicators && tech.indicators.length) {
-        b += '  Indicator Detail:\n';
-        tech.indicators.forEach(function(ind) {
-          b += '    ' + (ind.name || 'N/A') + ': ' + (ind.value || 'N/A') + ' — ' + (ind.interpretation || '') + '\n';
-        });
-      }
+      b += 'Signal=' + (tech.signal || 'N/A');
+      if (tech.support) b += ' Sup=' + tech.support;
+      if (tech.resistance) b += ' Res=' + tech.resistance;
+      b += '\n';
+      if (tech.summary) b += tech.summary + '\n';
     }
     if (allData.rsiData && allData.rsiData.length) {
       var rsiVal = allData.rsiData[0].rsi;
-      b += '  RSI (14):       ' + rsiVal.toFixed(1) + (rsiVal > 70 ? ' OVERBOUGHT' : rsiVal < 30 ? ' OVERSOLD' : ' NEUTRAL') + '\n';
+      b += 'RSI=' + rsiVal.toFixed(1) + (rsiVal > 70 ? ' OVERBOUGHT' : rsiVal < 30 ? ' OVERSOLD' : '') + ' ';
     }
     if (allData.macdData && allData.macdData.length) {
-      b += '  MACD Histogram: ' + allData.macdData[0].histogram.toFixed(3) + (allData.macdData[0].histogram >= 0 ? ' BULLISH' : ' BEARISH') + '\n';
+      b += 'MACD=' + allData.macdData[0].histogram.toFixed(3) + (allData.macdData[0].histogram >= 0 ? ' BULL' : ' BEAR') + ' ';
     }
     if (allData.sma50Data && allData.sma50Data.length && allData.sma200Data && allData.sma200Data.length) {
-      var gc = allData.sma50Data[0].sma > allData.sma200Data[0].sma;
-      b += '  SMA Cross:      ' + (gc ? 'GOLDEN CROSS (bullish)' : 'DEATH CROSS (bearish)') + ' | SMA50=' + allData.sma50Data[0].sma.toFixed(2) + ' SMA200=' + allData.sma200Data[0].sma.toFixed(2) + '\n';
+      b += (allData.sma50Data[0].sma > allData.sma200Data[0].sma ? 'GOLDEN CROSS' : 'DEATH CROSS');
+      b += ' SMA50=' + allData.sma50Data[0].sma.toFixed(2) + ' SMA200=' + allData.sma200Data[0].sma.toFixed(2);
     }
-    if (!allData.technicalsResult && !allData.rsiData && !allData.macdData) { b += '  [NO TECHNICAL DATA]\n'; }
-    b += '└──────────────────────────────────────────────────────────────┘\n\n';
+    if (allData.rsiData || allData.macdData || allData.sma50Data) b += '\n';
 
-    // ── SECTION 11: PEER COMPARISON ──
+    // ── SECTION 11: PEERS (compact) ──
     if (allData.peers && allData.peers.length) {
-      b += '┌─ SECTION 11: PEER COMPARISON ───────────────────────────────┐\n';
+      b += '\n[PEERS]\n';
       allData.peers.forEach(function(pr) {
         var pf = pr.financials || {};
         var pq = pr.quote || {};
-        b += '  ' + pr.symbol + ': Price=$' + (pq.price ? pq.price.toFixed(2) : 'N/A') + ' | P/E=' + (pf.peRatio || 'N/A') + ' | Growth=' + (pf.revenueGrowth || 'N/A') + ' | Margin=' + (pf.profitMargin || 'N/A') + '\n';
+        b += pr.symbol + ': $' + (pq.price ? pq.price.toFixed(2) : 'N/A') + ' P/E=' + (pf.peRatio || 'N/A') + ' Growth=' + (pf.revenueGrowth || 'N/A') + '\n';
       });
-      b += '└──────────────────────────────────────────────────────────────┘\n\n';
     }
 
-    // ── SECTION 12: NEWS SENTIMENT ──
-    b += '┌─ SECTION 12: SENTIMENT & NEWS ────────────────────────────────┐\n';
+    // ── SECTION 12: NEWS (5 headlines max, 100 char summaries) ──
+    b += '\n[NEWS & SENTIMENT]\n';
     if (allData.avSentiment && allData.avSentiment.length) {
       var bullC = 0, bearC = 0, neutC = 0;
       allData.avSentiment.forEach(function(s) {
@@ -862,191 +734,95 @@ const NewsAI = (() => {
         }
       });
       var sentT = bullC + bearC + neutC;
-      if (sentT > 0) b += '  Sentiment (' + sentT + ' articles): Bullish=' + bullC + ' Neutral=' + neutC + ' Bearish=' + bearC + ' (' + Math.round(bullC / sentT * 100) + '% bullish)\n';
+      if (sentT > 0) b += 'Sentiment: Bull=' + bullC + ' Neut=' + neutC + ' Bear=' + bearC + ' (' + Math.round(bullC / sentT * 100) + '% bull)\n';
     }
     if (allData.articles && allData.articles.length) {
-      b += '  Recent Headlines (' + allData.articles.length + '):\n';
-      allData.articles.slice(0, 10).forEach(function(a) {
-        b += '    - ' + a.title + ' (' + a.publisher + ', ' + a.date + ')';
-        if (a.summary) b += '\n      ' + a.summary.substring(0, 200);
+      allData.articles.slice(0, 5).forEach(function(a) {
+        b += '- ' + a.title;
+        if (a.summary) b += ' | ' + a.summary.substring(0, 100);
         b += '\n';
       });
     }
     if (allData.macroArticles && allData.macroArticles.length) {
-      b += '  Macro/Economy Headlines (' + allData.macroArticles.length + '):\n';
-      allData.macroArticles.slice(0, 8).forEach(function(a) {
-        b += '    - ' + a.title + ' (' + a.publisher + ', ' + a.date + ')';
-        if (a.summary) b += '\n      ' + a.summary.substring(0, 200);
+      b += 'Macro Headlines:\n';
+      allData.macroArticles.slice(0, 4).forEach(function(a) {
+        b += '- ' + a.title;
+        if (a.summary) b += ' | ' + a.summary.substring(0, 100);
         b += '\n';
       });
     }
-    b += '└──────────────────────────────────────────────────────────────┘\n\n';
 
-    // ── SECTION 13: EPS ESTIMATE REVISIONS ──
+    // ── SECTION 13: EPS ESTIMATES ──
     if (allData.epsEstimates && allData.epsEstimates.quarterly && allData.epsEstimates.quarterly.length) {
-      b += '┌─ SECTION 13: EPS ESTIMATE REVISIONS ───────────────────────┐\n';
+      b += '\n[EPS ESTIMATES]\n';
       allData.epsEstimates.quarterly.forEach(function(e) {
-        b += '  ' + e.period + ': Avg=' + (e.avg != null ? '$' + e.avg.toFixed(2) : 'N/A') + ' | High=' + (e.high != null ? '$' + e.high.toFixed(2) : 'N/A') + ' | Low=' + (e.low != null ? '$' + e.low.toFixed(2) : 'N/A') + ' | Analysts=' + (e.numAnalysts || 'N/A') + '\n';
+        b += e.period + ': Avg=$' + (e.avg != null ? e.avg.toFixed(2) : 'N/A') + ' Hi=$' + (e.high != null ? e.high.toFixed(2) : 'N/A') + ' Lo=$' + (e.low != null ? e.low.toFixed(2) : 'N/A') + ' #' + (e.numAnalysts || 'N/A') + '\n';
       });
-      b += '└──────────────────────────────────────────────────────────────┘\n\n';
     }
 
-    // ── SECTION 14: AI ANALYSIS SUMMARIES ──
-    b += '┌─ SECTION 14: AI ANALYSIS SUMMARIES (from sub-analysts) ──────┐\n';
+    // ── SECTION 14: AI SUB-ANALYST SUMMARIES (compressed — summary + outlook only) ──
+    b += '\n[AI ANALYSES]\n';
     if (allData.aiResult) {
-      var nai = allData.aiResult;
-      b += '  NEWS AI:         Outlook=' + (nai.longTermOutlook || 'N/A') + '\n';
-      b += '                   ' + (nai.summary || '') + '\n';
-      if (nai.outlookReason) b += '    Outlook Reason: ' + nai.outlookReason + '\n';
-      if (nai.valuationImpact && nai.valuationImpact.length) {
-        b += '    Valuation Impact Factors:\n';
-        nai.valuationImpact.forEach(function(vi) {
-          b += '      ' + (vi.direction || '?') + ' ' + (vi.factor || '') + ': ' + (vi.detail || '') + '\n';
-        });
-      }
-      if (nai.keyTriggers && nai.keyTriggers.length) {
-        b += '    Key News Triggers:\n';
-        nai.keyTriggers.forEach(function(kt) {
-          b += '      [' + (kt.impact || '?') + '] ' + (kt.event || '') + ': ' + (kt.explanation || '') + '\n';
-        });
-      }
+      b += 'NEWS: ' + (allData.aiResult.longTermOutlook || 'N/A') + ' — ' + (allData.aiResult.summary || '') + '\n';
     }
     if (allData.analystAIResult) {
-      var aai = allData.analystAIResult;
-      b += '  ANALYST AI:      Consensus=' + (aai.consensus || 'N/A') + '\n';
-      b += '                   ' + (aai.summary || '') + '\n';
-      if (aai.keyTakeaways && aai.keyTakeaways.length) {
-        b += '    Key Takeaways:\n';
-        aai.keyTakeaways.forEach(function(kt) {
-          b += '      - ' + (kt.point || '') + ': ' + (kt.detail || '') + '\n';
-        });
-      }
+      b += 'ANALYST: ' + (allData.analystAIResult.consensus || 'N/A') + ' — ' + (allData.analystAIResult.summary || '') + '\n';
     }
     if (allData.macroAIResult) {
       var mai = allData.macroAIResult;
-      b += '  MACRO AI:        Impact=' + (mai.impact || 'N/A') + '\n';
-      if (mai.macroRegime) b += '    Macro Regime:  ' + mai.macroRegime + '\n';
-      b += '                   ' + (mai.summary || '') + '\n';
-      if (mai.impactReason) b += '    Impact Reason: ' + mai.impactReason + '\n';
-      if (mai.macroFactors && mai.macroFactors.length) {
-        b += '    Macro Factors:\n';
-        mai.macroFactors.forEach(function(mf) {
-          b += '      ' + (mf.direction || '?') + ' ' + (mf.factor || '') + ': ' + (mf.detail || '') + '\n';
-        });
-      }
-      if (mai.risks && mai.risks.length) {
-        b += '    Macro Risks:\n';
-        mai.risks.forEach(function(r) {
-          b += '      [' + (r.severity || '?') + '] ' + (r.risk || '') + ': ' + (r.detail || '') + '\n';
-        });
-      }
+      b += 'MACRO: ' + (mai.impact || 'N/A') + ' — ' + (mai.summary || '');
+      if (mai.macroRegime) b += ' Regime: ' + mai.macroRegime;
+      b += '\n';
     }
     if (allData.transcriptAIResult) {
-      b += '  EARNINGS AI:     Sentiment=' + (allData.transcriptAIResult.sentiment || 'N/A') + '\n';
-      b += '                   ' + (allData.transcriptAIResult.summary || '') + '\n';
+      b += 'EARNINGS: ' + (allData.transcriptAIResult.sentiment || 'N/A') + ' — ' + (allData.transcriptAIResult.summary || '') + '\n';
     }
     if (allData.fundamentalsResult) {
       var fr = allData.fundamentalsResult;
-      b += '  FUNDAMENTALS AI: Growth=' + (fr.growthOutlook || 'N/A') + ' | Margins=' + (fr.marginTrend || 'N/A') + ' | Health=' + (fr.healthScore || 'N/A') + '\n';
-      b += '                   ' + (fr.summary || '') + '\n';
-      if (fr.strengths && fr.strengths.length) b += '    Strengths: ' + fr.strengths.map(function(s) { return s.area; }).join(', ') + '\n';
-      if (fr.weaknesses && fr.weaknesses.length) b += '    Weaknesses: ' + fr.weaknesses.map(function(w) { return w.area; }).join(', ') + '\n';
+      b += 'FUNDAMENTALS: Growth=' + (fr.growthOutlook || 'N/A') + ' Margins=' + (fr.marginTrend || 'N/A') + ' Health=' + (fr.healthScore || 'N/A') + ' — ' + (fr.summary || '') + '\n';
     }
-    if (!allData.aiResult && !allData.analystAIResult && !allData.macroAIResult && !allData.transcriptAIResult && !allData.fundamentalsResult) {
-      b += '  [NO AI ANALYSES RUN YET]\n';
-    }
-    b += '└──────────────────────────────────────────────────────────────┘\n\n';
 
-    // ── SECTION 15: DATA COMPLETENESS AUDIT ──
-    var dataAvail = [];
-    var dataMissing = [];
-    if (allData.quote) dataAvail.push('Live Quote'); else dataMissing.push('Live Quote');
-    if (allData.profile) dataAvail.push('Company Profile'); else dataMissing.push('Company Profile');
-    if (allData.financials) dataAvail.push('Financial Metrics'); else dataMissing.push('Financial Metrics');
-    if (allData.earnings && allData.earnings.length) dataAvail.push('Earnings History'); else dataMissing.push('Earnings History');
-    if (allData.recommendations && allData.recommendations.length) dataAvail.push('Analyst Ratings'); else dataMissing.push('Analyst Ratings');
-    if (allData.articles && allData.articles.length) dataAvail.push('Company News'); else dataMissing.push('Company News');
-    if (allData.macroArticles && allData.macroArticles.length) dataAvail.push('Macro News'); else dataMissing.push('Macro News');
-    if (allData.insiderTrades && allData.insiderTrades.length) dataAvail.push('Insider Trades'); else dataMissing.push('Insider Trades');
-    if (allData.aiResult) dataAvail.push('AI News Analysis'); else dataMissing.push('AI News Analysis');
-    if (allData.analystAIResult) dataAvail.push('AI Analyst Summary'); else dataMissing.push('AI Analyst Summary');
-    if (allData.macroAIResult) dataAvail.push('AI Macro Impact'); else dataMissing.push('AI Macro Impact');
-    if (allData.transcriptAIResult) dataAvail.push('Earnings Call Summary'); else dataMissing.push('Earnings Call Summary');
-    if (allData.fundamentalsResult) dataAvail.push('Fundamentals Analysis'); else dataMissing.push('Fundamentals Analysis');
-    if (allData.technicalsResult) dataAvail.push('Technical Analysis'); else dataMissing.push('Technical Analysis');
-    if (allData.avOverview) dataAvail.push('Company Overview'); else dataMissing.push('Company Overview');
-    if (allData.peers && allData.peers.length) dataAvail.push('Peer Comparison'); else dataMissing.push('Peer Comparison');
-    if (allData.secFilings && allData.secFilings.length) dataAvail.push('SEC Filings'); else dataMissing.push('SEC Filings');
-    if (allData.cashFlowData && allData.cashFlowData.length) dataAvail.push('Cash Flow Statement'); else dataMissing.push('Cash Flow Statement');
-    if (allData.balanceSheetData && allData.balanceSheetData.length) dataAvail.push('Balance Sheet'); else dataMissing.push('Balance Sheet');
-    if (allData.incomeData && allData.incomeData.length) dataAvail.push('Revenue & Income'); else dataMissing.push('Revenue & Income');
-    if (allData.epsEstimates && allData.epsEstimates.quarterly && allData.epsEstimates.quarterly.length) dataAvail.push('EPS Estimates'); else dataMissing.push('EPS Estimates');
-    if (allData.rsiData && allData.rsiData.length) dataAvail.push('RSI/MACD/SMA');
+    // ── DATA COVERAGE (1 line) ──
+    var dataAvail = 0;
+    var dataTotal = 0;
+    var missing = [];
+    function _chk(ok, name) { dataTotal++; if (ok) dataAvail++; else missing.push(name); }
+    _chk(allData.quote, 'Quote'); _chk(allData.profile, 'Profile'); _chk(allData.financials, 'Financials');
+    _chk(allData.earnings && allData.earnings.length, 'Earnings'); _chk(allData.articles && allData.articles.length, 'News');
+    _chk(allData.cashFlowData && allData.cashFlowData.length, 'CashFlow'); _chk(allData.aiResult, 'NewsAI');
+    _chk(allData.macroAIResult, 'MacroAI'); _chk(allData.fundamentalsResult, 'FundamentalsAI'); _chk(allData.technicalsResult, 'TechAI');
+    b += '\n[DATA] ' + dataAvail + '/' + dataTotal + ' sources.';
+    if (missing.length) b += ' Missing: ' + missing.join(', ');
+    b += '\n';
 
-    b += '┌─ SECTION 15: DATA COMPLETENESS AUDIT ─────────────────────────┐\n';
-    b += '  Coverage: ' + dataAvail.length + '/' + (dataAvail.length + dataMissing.length) + ' sources\n';
-    b += '  Available: ' + dataAvail.join(', ') + '\n';
-    if (dataMissing.length) b += '  MISSING:   ' + dataMissing.join(', ') + '\n';
-    b += '  INSTRUCTION: Factor missing data into confidence. Missing cash flow = no DCF. Missing earnings = lower conviction.\n';
-    b += '└──────────────────────────────────────────────────────────────┘\n\n';
-
-    // ── USER PROMPT (instructions + data) ──
-    var userMsg = 'Analyze the following research briefing for ' + symbol + ' and deliver your final investment verdict.\n\n';
-    userMsg += 'THINKING INSTRUCTIONS:\n';
-    userMsg += 'Before writing your verdict, mentally walk through each of the 8 steps in your analytical framework.\n';
-    userMsg += 'For each step, note what the data tells you. Identify where signals converge and where they diverge.\n';
-    userMsg += 'Then synthesize all 8 steps into a coherent thesis. Document your reasoning in the thinkingProcess field.\n\n';
-    userMsg += 'VALUATION INSTRUCTIONS:\n';
-    userMsg += '- If CASH FLOW data is available in Section 6, compute a DCF intrinsic value:\n';
-    userMsg += '  1. Take the most recent year FCF as base\n';
-    userMsg += '  2. Estimate 5-year FCF growth rate from the historical trend\n';
-    userMsg += '  3. Apply WACC = 10% as discount rate\n';
-    userMsg += '  4. Terminal value: FCF_year5 * (1 + 2.5%) / (WACC - 2.5%)\n';
-    userMsg += '  5. Sum discounted FCFs + discounted terminal value = Enterprise Value\n';
-    userMsg += '  6. Subtract net debt (LT Debt + ST Debt - Cash from Balance Sheet)\n';
-    userMsg += '  7. Divide by shares outstanding (Market Cap / Current Price)\n';
-    userMsg += '  8. Result = intrinsic value per share\n';
-    userMsg += '- If cash flow data is NOT available, set intrinsicValue to null and dcfAssumptions to null.\n';
-    userMsg += '- Your priceTarget should be informed by DCF (if available), peer multiples, and/or historical valuation ranges.\n';
-    userMsg += '- State which valuation method(s) you used in verdictReason.\n\n';
-    userMsg += 'EPS ESTIMATE MOMENTUM:\n';
-    userMsg += '- Check Section 13B for EPS estimate revisions. Are estimates rising or falling across quarters?\n';
-    userMsg += '- Cross-reference with Section 5 earnings beat/miss rate. Rising estimates + beats = strong. Falling + misses = weak.\n\n';
-    userMsg += 'NEWS & MACRO CATALYST INSTRUCTIONS:\n';
-    userMsg += '- Section 12 contains recent company news headlines AND macro/economy headlines. READ THEM CAREFULLY.\n';
-    userMsg += '- Section 14 contains detailed AI analysis of news and macro factors including valuation impact factors, key triggers, macro tailwinds/headwinds, and risks.\n';
-    userMsg += '- For companies with emerging business lines (robotaxis, AI, energy, new products), news about launches, regulatory approvals, or competitive moves can have OUTSIZED impact on valuation.\n';
-    userMsg += '- Your catalysts list MUST include any major news-driven catalysts from Sections 12 and 14.\n';
-    userMsg += '- Your summary and thinkingProcess MUST reference specific news items that could materially affect the stock.\n';
-    userMsg += '- If macro factors are headwinds or tailwinds, explain how they affect your price target.\n\n';
+    // ── USER PROMPT (condensed) ──
+    var userMsg = 'Analyze this briefing for ' + symbol + ' and deliver your verdict.\n\n';
+    userMsg += 'INSTRUCTIONS:\n';
+    userMsg += '- Walk through your 8-step framework. Document key findings in thinkingProcess.\n';
+    userMsg += '- If cash flow data available, compute DCF: FCF base -> 5Y growth -> WACC 10% -> terminal 2.5% -> subtract net debt -> per share.\n';
+    userMsg += '- If no cash flow, set intrinsicValue and dcfAssumptions to null.\n';
+    userMsg += '- Check EPS estimates for revision momentum. Cross-ref with beat/miss rate.\n';
+    userMsg += '- News/macro catalysts MUST be reflected in your thesis and price target.\n';
+    userMsg += '- State which valuation method you used.\n\n';
     userMsg += b;
-    userMsg += 'Respond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n';
-    userMsg += '{\n';
-    userMsg += '  "verdict": "STRONG BUY" or "BUY" or "HOLD" or "SELL" or "STRONG SELL",\n';
-    userMsg += '  "confidence": "HIGH" or "MEDIUM" or "LOW",\n';
-    userMsg += '  "priceTarget": <number - your 12-month price target>,\n';
-    userMsg += '  "timeHorizon": "12 months",\n';
-    userMsg += '  "thinkingProcess": "Walk through your 8-step analysis here. For each step, state what the data shows and your conclusion. 4-6 sentences covering the key steps.",\n';
-    userMsg += '  "summary": "4-5 sentence executive summary of your investment thesis — cover business quality, growth, valuation, and key catalyst",\n';
-    userMsg += '  "verdictReason": "2-3 sentences explaining your price target derivation and why you chose this verdict. Mention which valuation method you used.",\n';
-    userMsg += '  "dataQuality": "1 sentence on data freshness, coverage, and any gaps that affected your analysis",\n';
-    userMsg += '  "intrinsicValue": <number or null - DCF intrinsic value per share>,\n';
-    userMsg += '  "dcfAssumptions": "1-2 sentences: FCF base, growth rate used, WACC, terminal growth, shares outstanding. Or null if no DCF.",\n';
-    userMsg += '  "bull": ["1 sentence bull point - be specific with numbers"],\n';
-    userMsg += '  "bear": ["1 sentence bear point - be specific with numbers"],\n';
-    userMsg += '  "catalysts": [{"event": "specific catalyst", "timeline": "when", "impact": "HIGH/MEDIUM/LOW"}],\n';
-    userMsg += '  "risks": [{"risk": "specific risk", "severity": "HIGH/MEDIUM/LOW", "mitigation": "1 sentence"}]\n';
-    userMsg += '}\n\n';
-    userMsg += 'Keep bull to 3-4 points. Keep bear to 2-3 points. Keep catalysts to 2-3. Keep risks to 2-3.\n';
-    userMsg += 'Be SPECIFIC with numbers. Show your work. No generic statements.';
+    userMsg += '\nRespond in EXACT JSON (no markdown):\n';
+    userMsg += '{"verdict":"STRONG BUY|BUY|HOLD|SELL|STRONG SELL","confidence":"HIGH|MEDIUM|LOW",';
+    userMsg += '"priceTarget":<number>,"timeHorizon":"12 months",';
+    userMsg += '"thinkingProcess":"4-6 sentences covering key steps",';
+    userMsg += '"summary":"4-5 sentence thesis",';
+    userMsg += '"verdictReason":"2-3 sentences on price target derivation + valuation method used",';
+    userMsg += '"dataQuality":"1 sentence on data gaps",';
+    userMsg += '"intrinsicValue":<number|null>,"dcfAssumptions":"1-2 sentences or null",';
+    userMsg += '"bull":["specific point with numbers"],"bear":["specific point"],';
+    userMsg += '"catalysts":[{"event":"...","timeline":"...","impact":"HIGH|MED|LOW"}],';
+    userMsg += '"risks":[{"risk":"...","severity":"HIGH|MED|LOW","mitigation":"..."}]}\n';
+    userMsg += 'Keep bull 3-4, bear 2-3, catalysts 2-3, risks 2-3. Be specific with numbers.';
 
-    // Use MODEL_DEEP (llama-3.3-70b) for deeper reasoning
-    // 3000 tokens for thorough analysis, 60s timeout for larger model
-    // Temperature 0.5 for balanced creativity + precision
+    // MODEL_DEEP, reduced to 2000 tokens (was 3000), 60s timeout
     var result = await groqFetch([
       { role: 'system', content: sysMsg },
       { role: 'user', content: userMsg }
-    ], 3000, 0.5, { model: MODEL_DEEP, timeoutMs: 60000 });
+    ], 2000, 0.5, { model: MODEL_DEEP, timeoutMs: 60000 });
 
     // Attach current price for upside calc
     if (allData.quote) result.currentPrice = allData.quote.price;
@@ -1055,6 +831,7 @@ const NewsAI = (() => {
     }
     return result;
   }
+
 
   /**
    * Analyze company fundamentals — growth, margins, health, sentiment.
@@ -1188,20 +965,7 @@ const NewsAI = (() => {
    */
   async function chatAdvisor(messages, opts) {
     var useModel = (opts && opts.model) || MODEL_DEEP;
-    // Route to Gemini when available, with Groq fallback
-    if (hasGeminiKey()) {
-      try {
-        console.log('[AI] Chat routing to Gemini');
-        return await _geminiEnqueue(function() {
-          return _geminiChatDirect(messages, (opts && opts.maxTokens) || 2048, 0.5);
-        });
-      } catch (e) {
-        console.warn('[AI] Gemini chat FAILED (' + e.message + '), falling back to Groq');
-        return _groqEnqueue(function() {
-          return _chatAdvisorDirect(messages, opts);
-        }, useModel);
-      }
-    }
+    // Chat always uses Groq DEEP — don't compete with Gemini queue
     return _groqEnqueue(function() {
       return _chatAdvisorDirect(messages, opts);
     }, useModel);
