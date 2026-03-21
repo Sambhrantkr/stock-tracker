@@ -23,6 +23,19 @@ const NewsAI = (() => {
   function setKey(key) { if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('groq_api_key', key.trim()); else localStorage.setItem('groq_api_key', key.trim()); }
   function hasKey() { return getKey().length > 0; }
 
+  // ── Groq key 2 (second account for double throughput) ──
+  function getKey2() { return (typeof Auth !== 'undefined' && Auth.isLoggedIn()) ? (Auth.getItem('groq_api_key_2') || '') : (localStorage.getItem('groq_api_key_2') || ''); }
+  function setKey2(key) { if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('groq_api_key_2', key.trim()); else localStorage.setItem('groq_api_key_2', key.trim()); }
+  function hasKey2() { return getKey2().length > 0; }
+
+  // Round-robin counter for alternating between Groq keys
+  var _groqKeyToggle = 0;
+  function _nextGroqKey() {
+    if (!hasKey2()) return getKey();
+    _groqKeyToggle = (_groqKeyToggle + 1) % 2;
+    return _groqKeyToggle === 0 ? getKey() : getKey2();
+  }
+
   // ── Gemini key management ──
   function getGeminiKey() { return (typeof Auth !== 'undefined' && Auth.isLoggedIn()) ? (Auth.getItem('gemini_api_key') || '') : (localStorage.getItem('gemini_api_key') || ''); }
   function setGeminiKey(key) { if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('gemini_api_key', key.trim()); else localStorage.setItem('gemini_api_key', key.trim()); }
@@ -198,8 +211,9 @@ const NewsAI = (() => {
 
   /**
    * Smart fetch with dual-provider routing and auto-retry.
-   * LIGHT+MID → Gemini primary, Groq fallback
-   * DEEP → Groq only (don't compete with Gemini queue)
+   * ALL tiers → Gemini primary (when key available), Groq fallback
+   * DEEP without Gemini → Groq 70b only
+   * This maximizes throughput by spreading load across both providers.
    */
   async function groqFetch(messages, maxTokens, temperature, opts) {
     var useModel = (opts && opts.model) || MODEL_LIGHT;
@@ -213,23 +227,9 @@ const NewsAI = (() => {
         await new Promise(function(r) { setTimeout(r, waitSec * 1000); });
       }
 
-      // === DEEP tier: Groq 70b only (retries on same provider) ===
-      if (isDeep) {
-        try {
-          console.log('[AI] → Groq DEEP (70b)' + (retry ? ' [retry ' + retry + ']' : ''));
-          return await _groqEnqueue(function() {
-            return _groqFetchDirect(messages, maxTokens, temperature, opts);
-          }, useModel);
-        } catch (e) {
-          console.warn('[AI] Groq DEEP failed: ' + e.message);
-          lastError = e;
-          continue; // wait and retry Groq — don't pile onto Gemini
-        }
-      }
-
-      // === LIGHT + MID: Gemini primary, Groq fallback ===
+      // === ALL tiers: Gemini primary, Groq fallback ===
       if (hasGeminiKey()) {
-        var tierLabel = useModel === MODEL_MID ? 'MID' : 'LIGHT';
+        var tierLabel = isDeep ? 'DEEP' : (useModel === MODEL_MID ? 'MID' : 'LIGHT');
         try {
           console.log('[AI] → Gemini (' + tierLabel + ')' + (retry ? ' [retry ' + retry + ']' : ''));
           return await _geminiEnqueue(function() {
@@ -270,6 +270,7 @@ const NewsAI = (() => {
   async function _groqFetchDirect(messages, maxTokens, temperature, opts) {
     var useModel = (opts && opts.model) || MODEL;
     var useTimeout = (opts && opts.timeoutMs) || 30000;
+    var apiKey = _nextGroqKey(); // round-robin between keys
     var retries = 3;
     var waitMs = 5000;
     for (var attempt = 0; attempt < retries; attempt++) {
@@ -281,7 +282,7 @@ const NewsAI = (() => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + getKey(),
+            'Authorization': 'Bearer ' + apiKey,
           },
           body: JSON.stringify({
             model: useModel,
@@ -1009,6 +1010,7 @@ const NewsAI = (() => {
     var useModel = (opts && opts.model) || MODEL_DEEP;
     var useTimeout = (opts && opts.timeoutMs) || 60000;
     var maxTokens = (opts && opts.maxTokens) || 2048;
+    var apiKey = _nextGroqKey(); // round-robin between keys
     var retries = 3;
     var waitMs = 8000;
     for (var attempt = 0; attempt < retries; attempt++) {
@@ -1020,7 +1022,7 @@ const NewsAI = (() => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + getKey(),
+            'Authorization': 'Bearer ' + apiKey,
           },
           body: JSON.stringify({
             model: useModel,
@@ -1075,5 +1077,5 @@ const NewsAI = (() => {
     }
   }
 
-  return { getKey, setKey, hasKey, getGeminiKey, setGeminiKey, hasGeminiKey, testGemini, analyzeNews, analyzeAnalysts, analyzeMacro, summarizeTranscript, generateVerdict, analyzeFundamentals, analyzeTechnicals, chatAdvisor };
+  return { getKey, setKey, hasKey, getKey2, setKey2, hasKey2, getGeminiKey, setGeminiKey, hasGeminiKey, testGemini, analyzeNews, analyzeAnalysts, analyzeMacro, summarizeTranscript, generateVerdict, analyzeFundamentals, analyzeTechnicals, chatAdvisor };
 })();

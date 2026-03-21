@@ -82,6 +82,7 @@
               <tr><td>Google Sign-In</td><td>Optional</td><td>Unlimited</td><td>User-scoped data isolation (sign in via sidebar)</td></tr>
               <tr><td>Finnhub</td><td>Yes</td><td>60 calls/min</td><td>Quotes, profiles, news, earnings, peers, insider data</td></tr>
               <tr><td>Groq</td><td>No</td><td>14,400/day</td><td>AI technicals, fundamentals, transcript, senior verdict, chat</td></tr>
+              <tr><td>Groq Key 2</td><td>No</td><td>+14,400/day</td><td>Doubles Groq throughput (use different account)</td></tr>
               <tr><td>Gemini</td><td>No</td><td>1,500/day</td><td>AI news, analyst, macro analysis (offloads Groq)</td></tr>
               <tr><td>Alpha Vantage</td><td>No</td><td>25/day</td><td>Company overview, transcripts, technicals, revenue</td></tr>
             </tbody>
@@ -139,6 +140,11 @@
         <div class="key-row">
           <p><a href="https://console.groq.com/keys" target="_blank" rel="noopener">Groq</a> key (optional, AI):</p>
           <input type="text" id="groq-key-input" placeholder="Paste Groq API key..." aria-label="Groq API key" />
+        </div>
+        <div class="key-row">
+          <p><a href="https://console.groq.com/keys" target="_blank" rel="noopener">Groq</a> key 2 (optional, doubles AI throughput):</p>
+          <input type="text" id="groq-key2-input" placeholder="Paste 2nd Groq key (different account)..." aria-label="Groq API key 2" />
+          <div style="font-size:0.6rem;color:var(--muted);margin-top:0.15rem;">Use a second Groq account to double rate limits — keys alternate automatically</div>
         </div>
         <div class="key-row">
           <p><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Gemini</a> key (optional, AI boost):</p>
