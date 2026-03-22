@@ -599,6 +599,110 @@
     });
   }
 
+  // --- Download PDF ---
+  var downloadPdfBtn = document.getElementById('download-pdf-btn');
+  if (downloadPdfBtn) {
+    downloadPdfBtn.addEventListener('click', async function() {
+      if (!selectedSymbol) { showWarning('Select a stock first.'); return; }
+      var btn = downloadPdfBtn;
+      btn.disabled = true;
+      btn.textContent = 'Generating PDF…';
+
+      try {
+        // Expand all tiles temporarily so PDF captures everything
+        var grid = document.getElementById('tiles-grid');
+        var wasCollapsed = [];
+        if (grid) {
+          grid.querySelectorAll('.tile.collapsed').forEach(function(t) {
+            wasCollapsed.push(t.id);
+            t.classList.remove('collapsed');
+          });
+        }
+
+        // Small delay for DOM to settle
+        await new Promise(function(r) { setTimeout(r, 300); });
+
+        var jsPDF = window.jspdf.jsPDF;
+        var pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+        var pageW = pdf.internal.pageSize.getWidth();
+        var pageH = pdf.internal.pageSize.getHeight();
+        var margin = 8;
+        var usableW = pageW - margin * 2;
+        var cursorY = margin;
+
+        // Capture helper
+        async function captureToPDF(el) {
+          if (!el || el.offsetHeight === 0 || el.style.display === 'none') return;
+          var canvas = await html2canvas(el, {
+            backgroundColor: '#0f1117',
+            scale: 2,
+            useCORS: true,
+            logging: false,
+            windowWidth: el.scrollWidth,
+            removeContainer: true
+          });
+          var imgData = canvas.toDataURL('image/jpeg', 0.92);
+          var imgW = usableW;
+          var imgH = (canvas.height / canvas.width) * imgW;
+
+          // If single tile is taller than a full page, scale it down
+          if (imgH > pageH - margin * 2) {
+            imgH = pageH - margin * 2;
+            imgW = (canvas.width / canvas.height) * imgH;
+          }
+
+          // New page if it won't fit
+          if (cursorY + imgH > pageH - margin) {
+            pdf.addPage();
+            cursorY = margin;
+          }
+          pdf.addImage(imgData, 'JPEG', margin, cursorY, imgW, imgH);
+          cursorY += imgH + 3;
+        }
+
+        // 1. Capture header
+        var header = document.getElementById('detail-header');
+        await captureToPDF(header);
+
+        // 2. Capture each visible tile in order
+        if (grid) {
+          var tiles = grid.querySelectorAll('.tile');
+          for (var i = 0; i < tiles.length; i++) {
+            var tile = tiles[i];
+            if (tile.style.display === 'none' || tile.getAttribute('data-render-hidden') === 'true') continue;
+            if (tile.offsetHeight === 0) continue;
+            btn.textContent = 'Capturing ' + (i + 1) + '/' + tiles.length + '…';
+            await captureToPDF(tile);
+          }
+        }
+
+        // Footer on last page
+        pdf.setFontSize(8);
+        pdf.setTextColor(100);
+        pdf.text('Stock Tracker Dashboard — ' + selectedSymbol + ' — ' + new Date().toLocaleString(), margin, pageH - 4);
+
+        // Restore collapsed state
+        wasCollapsed.forEach(function(id) {
+          var t = document.getElementById(id);
+          if (t) { t.classList.add('collapsed'); var b = t.querySelector('.tile-minimize-btn'); if (b) b.textContent = '▼'; }
+        });
+
+        // Save
+        var c = cache[selectedSymbol];
+        var name = (c && c.profile && c.profile.name) ? c.profile.name.replace(/[^a-zA-Z0-9]/g, '_') : selectedSymbol;
+        var dateStr = new Date().toISOString().slice(0, 10);
+        pdf.save(selectedSymbol + '_' + name + '_' + dateStr + '.pdf');
+
+      } catch (err) {
+        console.error('PDF generation failed:', err);
+        showError('PDF generation failed: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '📄 Download PDF';
+      }
+    });
+  }
+
   // --- Tile Visibility Manager ---
   var TILE_NAMES = {
     'tile-verdict': '🎯 AI Analyst Verdict',
@@ -1219,6 +1323,7 @@
     if (ai) {
       h += '<div class="technicals-signal-row">';
       h += '<span class="technicals-signal-badge ' + (ai.signal || '') + '">' + (ai.signal || 'N/A') + '</span>';
+      if (ai.signalStrength) h += '<span class="ai-impact-badge ' + (ai.signalStrength === 'STRONG' ? 'HIGH' : ai.signalStrength === 'WEAK' ? 'LOW' : 'MEDIUM') + '" style="font-size:0.6rem;margin-left:0.3rem;">' + ai.signalStrength + '</span>';
       h += '<span style="font-size:0.72rem;color:var(--muted);">' + (ai.signalReason || '') + '</span>';
       h += '</div>';
       h += '<div class="ai-summary">' + (ai.summary || '') + '</div>';
@@ -1246,6 +1351,9 @@
       if (ai.support) h += '<div class="technicals-level"><div class="technicals-level-label">Support</div><div class="technicals-level-val" style="color:var(--green);">' + ai.support + '</div></div>';
       if (ai.resistance) h += '<div class="technicals-level"><div class="technicals-level-label">Resistance</div><div class="technicals-level-val" style="color:var(--red);">' + ai.resistance + '</div></div>';
       h += '</div>';
+    }
+    if (ai && ai.keyLevels) {
+      h += '<div style="font-size:0.72rem;color:var(--accent);margin-top:0.3rem;padding:0.3rem 0.5rem;background:var(--card-bg);border-radius:4px;border-left:2px solid var(--accent);"><span style="font-weight:600;">Key Levels:</span> ' + ai.keyLevels + '</div>';
     }
     // SMA values
     if (c.sma50Data && c.sma50Data.length) {
@@ -2011,12 +2119,15 @@
     // AI badges row
     if (ai) {
       h += '<div class="fundamentals-badges">';
+      if (ai.overallAssessment) h += '<div class="fundamentals-badge ' + (ai.overallAssessment || '') + '">\uD83C\uDFAF Overall: ' + (ai.overallAssessment || 'N/A') + '</div>';
       h += '<div class="fundamentals-badge ' + (ai.growthOutlook || '') + '">\uD83D\uDCC8 Growth: ' + (ai.growthOutlook || 'N/A') + '</div>';
       h += '<div class="fundamentals-badge ' + (ai.marginTrend || '') + '">\uD83D\uDCCA Margins: ' + (ai.marginTrend || 'N/A') + '</div>';
       h += '<div class="fundamentals-badge ' + (ai.healthScore || '') + '">\uD83C\uDFE6 Health: ' + (ai.healthScore || 'N/A') + '</div>';
+      if (ai.capitalAllocation) h += '<div class="fundamentals-badge ' + (ai.capitalAllocation || '') + '">\uD83D\uDCB0 Capital: ' + (ai.capitalAllocation || 'N/A') + '</div>';
       h += '<div class="fundamentals-badge ' + (ai.sentimentLabel || '') + '">\uD83D\uDCE1 Sentiment: ' + (ai.sentimentLabel || 'N/A') + '</div>';
       h += '</div>';
       h += '<div class="ai-summary">' + (ai.summary || '') + '</div>';
+      if (ai.capitalAllocationReason) h += '<div style="font-size:0.7rem;color:var(--muted);margin-bottom:0.4rem;"><span style="font-weight:600;">Capital Allocation:</span> ' + ai.capitalAllocationReason + '</div>';
     }
 
     // Metrics grid
@@ -2181,14 +2292,17 @@
     h += '<div class="ai-outlook ' + ai.longTermOutlook + '">' + icon + ' Long-term: ' + ai.longTermOutlook + '</div>';
     h += '<div class="ai-outlook-reason">' + (ai.outlookReason || '') + '</div>';
     if (ai.valuationImpact && ai.valuationImpact.length) {
-      h += '<div class="ai-table-title">Valuation Impact Factors</div><table class="ai-table"><thead><tr><th>Factor</th><th>Direction</th><th>Detail</th></tr></thead><tbody>';
-      ai.valuationImpact.forEach(function(f) { h += '<tr><td class="ai-table-factor">' + f.factor + '</td><td><span class="ai-direction ' + f.direction + '">' + f.direction + '</span></td><td class="ai-table-detail">' + f.detail + '</td></tr>'; });
+      h += '<div class="ai-table-title">Valuation Impact Factors</div><table class="ai-table"><thead><tr><th>Factor</th><th>Direction</th><th>Magnitude</th><th>Detail</th></tr></thead><tbody>';
+      ai.valuationImpact.forEach(function(f) { h += '<tr><td class="ai-table-factor">' + f.factor + '</td><td><span class="ai-direction ' + f.direction + '">' + f.direction + '</span></td><td><span class="ai-impact-badge ' + (f.magnitude || 'MEDIUM') + '">' + (f.magnitude || '') + '</span></td><td class="ai-table-detail">' + f.detail + '</td></tr>'; });
       h += '</tbody></table>';
     }
     if (ai.keyTriggers && ai.keyTriggers.length) {
-      h += '<div class="ai-table-title">\u26A1 Key Triggers</div><table class="ai-table"><thead><tr><th>Event</th><th>Impact</th><th>Why It Matters</th></tr></thead><tbody>';
-      ai.keyTriggers.forEach(function(t) { h += '<tr><td class="ai-table-factor">' + t.event + '</td><td><span class="ai-impact-badge ' + t.impact + '">' + t.impact + '</span></td><td class="ai-table-detail">' + t.explanation + '</td></tr>'; });
+      h += '<div class="ai-table-title">\u26A1 Key Triggers</div><table class="ai-table"><thead><tr><th>Event</th><th>Impact</th><th>Timeline</th><th>Why It Matters</th></tr></thead><tbody>';
+      ai.keyTriggers.forEach(function(t) { h += '<tr><td class="ai-table-factor">' + t.event + '</td><td><span class="ai-impact-badge ' + t.impact + '">' + t.impact + '</span></td><td style="font-size:0.7rem;color:var(--muted);">' + (t.timeline || '') + '</td><td class="ai-table-detail">' + t.explanation + '</td></tr>'; });
       h += '</tbody></table>';
+    }
+    if (ai.narrativeShift) {
+      h += '<div style="margin-top:0.5rem;padding:0.4rem 0.6rem;background:var(--card-bg);border-left:3px solid var(--accent);border-radius:4px;font-size:0.75rem;color:var(--text-secondary);"><span style="color:var(--accent);font-weight:600;">Narrative Shift:</span> ' + ai.narrativeShift + '</div>';
     }
     el.innerHTML = h;
   }
@@ -2304,6 +2418,9 @@
     var h = '<div class="ai-summary">' + (ai.summary || '') + '</div>';
     h += '<div class="ai-outlook ' + ai.consensus + '">' + icon + ' Consensus: ' + ai.consensus + '</div>';
     h += '<div class="ai-outlook-reason">' + (ai.consensusReason || '') + '</div>';
+    if (ai.contrarian) {
+      h += '<div style="margin:0.4rem 0;padding:0.4rem 0.6rem;background:#1a1a2e;border-left:3px solid #f59e0b;border-radius:4px;font-size:0.75rem;color:#fbbf24;"><span style="font-weight:600;">Contrarian View:</span> ' + ai.contrarian + '</div>';
+    }
     if (ai.keyTakeaways && ai.keyTakeaways.length) {
       h += '<div class="ai-table-title">Key Takeaways</div><table class="ai-table"><thead><tr><th>Point</th><th>Detail</th></tr></thead><tbody>';
       ai.keyTakeaways.forEach(function(t) {
@@ -2429,16 +2546,20 @@
         h += '<div class="macro-factor-item">'
           + '<span class="macro-factor-label">' + f.factor + '</span>'
           + '<span class="macro-factor-badge ' + f.direction + '">' + f.direction + '</span>'
+          + (f.magnitude ? '<span class="ai-impact-badge ' + f.magnitude + '" style="font-size:0.6rem;margin-left:0.3rem;">' + f.magnitude + '</span>' : '')
           + '<span class="macro-factor-detail">' + f.detail + '</span>'
           + '</div>';
       });
     }
     if (ai.risks && ai.risks.length) {
-      h += '<div class="ai-table-title">\u26A0\uFE0F Macro Risks</div><table class="ai-table"><thead><tr><th>Risk</th><th>Severity</th><th>Detail</th></tr></thead><tbody>';
+      h += '<div class="ai-table-title">\u26A0\uFE0F Macro Risks</div><table class="ai-table"><thead><tr><th>Risk</th><th>Severity</th><th>Prob.</th><th>Detail</th></tr></thead><tbody>';
       ai.risks.forEach(function(r) {
-        h += '<tr><td class="ai-table-factor">' + r.risk + '</td><td><span class="ai-impact-badge ' + r.severity + '">' + r.severity + '</span></td><td class="ai-table-detail">' + r.detail + '</td></tr>';
+        h += '<tr><td class="ai-table-factor">' + r.risk + '</td><td><span class="ai-impact-badge ' + r.severity + '">' + r.severity + '</span></td><td><span class="ai-impact-badge ' + (r.probability || 'MEDIUM') + '">' + (r.probability || '') + '</span></td><td class="ai-table-detail">' + r.detail + '</td></tr>';
       });
       h += '</tbody></table>';
+    }
+    if (ai.sectorImpact) {
+      h += '<div style="margin-top:0.5rem;padding:0.4rem 0.6rem;background:var(--card-bg);border-left:3px solid var(--accent);border-radius:4px;font-size:0.75rem;color:var(--text-secondary);"><span style="color:var(--accent);font-weight:600;">Sector Impact:</span> ' + ai.sectorImpact + '</div>';
     }
     // Show source headlines
     if (articles && articles.length) {
@@ -2587,6 +2708,17 @@
     h += '<div class="ai-summary">' + (ai.summary || '') + '</div>';
     if (ai.sentimentReason) {
       h += '<div class="ai-outlook-reason">' + ai.sentimentReason + '</div>';
+    }
+    if (ai.earningsQuality || ai.managementCredibility) {
+      h += '<div style="display:flex;gap:0.5rem;margin:0.4rem 0;flex-wrap:wrap;">';
+      if (ai.earningsQuality) {
+        var eqColor = ai.earningsQuality === 'HIGH' ? 'var(--green)' : ai.earningsQuality === 'LOW' ? 'var(--red)' : 'var(--muted)';
+        h += '<div style="flex:1;min-width:180px;padding:0.4rem 0.6rem;background:var(--card-bg);border-radius:4px;font-size:0.72rem;"><span style="color:' + eqColor + ';font-weight:600;">Earnings Quality: ' + ai.earningsQuality + '</span><br><span style="color:var(--text-secondary);">' + (ai.earningsQualityReason || '') + '</span></div>';
+      }
+      if (ai.managementCredibility) {
+        h += '<div style="flex:1;min-width:180px;padding:0.4rem 0.6rem;background:var(--card-bg);border-radius:4px;font-size:0.72rem;color:var(--text-secondary);"><span style="color:var(--accent);font-weight:600;">Mgmt Credibility:</span> ' + ai.managementCredibility + '</div>';
+      }
+      h += '</div>';
     }
     if (ai.keyHighlights && ai.keyHighlights.length) {
       h += '<div class="ai-table-title">Key Highlights</div><table class="ai-table"><thead><tr><th>Topic</th><th>Detail</th></tr></thead><tbody>';
@@ -3938,7 +4070,7 @@
   }
 
   // --- Portfolio Brief renderer ---
-  function showPortfolioBrief(brief, results) {
+  function showPortfolioBrief(brief, results, emailHTML) {
     if (!portfolioBriefModal || !portfolioBriefContent) return;
 
     // Fallback if AI returned a string instead of object
@@ -4050,11 +4182,84 @@
       h += '</div>';
     }
 
-    // Footer
-    h += '<div style="text-align:center;margin-top:12px;font-size:11px;color:#475569;">Victoria Park — Senior Portfolio Strategist | Generated ' + new Date().toLocaleTimeString() + '</div>';
+    // Footer + action buttons
+    h += '<div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:16px;flex-wrap:wrap;">';
+    h += '<button id="portfolio-brief-email-btn" style="padding:8px 20px;background:#6366f1;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">✉ Send Email Report</button>';
+    h += '<button id="portfolio-brief-download-btn" style="padding:8px 20px;background:#334155;color:#e2e8f0;border:1px solid #475569;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">📄 Download PDF</button>';
+    h += '</div>';
+    h += '<div style="text-align:center;margin-top:10px;font-size:11px;color:#475569;">Victoria Park — Senior Portfolio Strategist | Generated ' + new Date().toLocaleTimeString() + '</div>';
 
     portfolioBriefContent.innerHTML = h;
     portfolioBriefModal.classList.remove('hidden');
+
+    // Wire email button
+    var emailBtn = document.getElementById('portfolio-brief-email-btn');
+    if (emailBtn) {
+      emailBtn.addEventListener('click', function() {
+        if (emailHTML) {
+          openMorningReportEmail(emailHTML, results);
+        } else {
+          showWarning('Email report not available.');
+        }
+      });
+    }
+
+    // Wire PDF download button
+    var dlBtn = document.getElementById('portfolio-brief-download-btn');
+    if (dlBtn) {
+      dlBtn.addEventListener('click', async function() {
+        dlBtn.disabled = true;
+        dlBtn.textContent = 'Generating…';
+        try {
+          var jsPDF = window.jspdf.jsPDF;
+          var pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+          var pageW = pdf.internal.pageSize.getWidth();
+          var pageH = pdf.internal.pageSize.getHeight();
+          var m = 8;
+          var canvas = await html2canvas(portfolioBriefContent, {
+            backgroundColor: '#0f1117',
+            scale: 2,
+            useCORS: true,
+            logging: false
+          });
+          var imgData = canvas.toDataURL('image/jpeg', 0.92);
+          var usableW = pageW - m * 2;
+          var imgH = (canvas.height / canvas.width) * usableW;
+          var cursorY = m;
+          // Split across pages if needed
+          var pageImgH = pageH - m * 2;
+          if (imgH <= pageImgH) {
+            pdf.addImage(imgData, 'JPEG', m, cursorY, usableW, imgH);
+          } else {
+            // Tile the single canvas image across pages
+            var srcPageH = Math.floor(canvas.height * (pageImgH / imgH));
+            var yOff = 0;
+            while (yOff < canvas.height) {
+              var sliceH = Math.min(srcPageH, canvas.height - yOff);
+              var sliceCanvas = document.createElement('canvas');
+              sliceCanvas.width = canvas.width;
+              sliceCanvas.height = sliceH;
+              sliceCanvas.getContext('2d').drawImage(canvas, 0, yOff, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+              var sliceImg = sliceCanvas.toDataURL('image/jpeg', 0.92);
+              var drawH = (sliceH / canvas.width) * usableW;
+              if (yOff > 0) pdf.addPage();
+              pdf.addImage(sliceImg, 'JPEG', m, m, usableW, drawH);
+              yOff += sliceH;
+            }
+          }
+          pdf.setFontSize(8);
+          pdf.setTextColor(100);
+          pdf.text('Portfolio Morning Brief — ' + new Date().toLocaleString(), m, pageH - 4);
+          pdf.save('Portfolio_Brief_' + new Date().toISOString().slice(0, 10) + '.pdf');
+        } catch (err) {
+          console.error('PDF failed:', err);
+          showError('PDF generation failed: ' + err.message);
+        } finally {
+          dlBtn.disabled = false;
+          dlBtn.textContent = '📄 Download PDF';
+        }
+      });
+    }
   }
 
   // --- Morning Report: batch Senior Analyst + email ---
@@ -4147,16 +4352,18 @@
       morningReportProgress.innerHTML = '<div>\uD83E\uDDE0 Victoria Park is preparing your portfolio brief\u2026</div><div class="mrp-bar" style="width:93%"></div>';
       try {
         var brief = await NewsAI.generatePortfolioBrief(results);
-        showPortfolioBrief(brief, results);
+        showPortfolioBrief(brief, results, emailHTML);
       } catch (e) {
         console.warn('Portfolio brief failed:', e.message);
+        // Brief failed — fall back to sending email directly
+        openMorningReportEmail(emailHTML, results);
       }
+    } else {
+      openMorningReportEmail(emailHTML, results);
     }
 
     // Open mailto or copy to clipboard
     morningReportProgress.innerHTML = '<div>\u2705 Report ready for ' + results.length + ' stocks' + (failed.length ? ' (' + failed.length + ' failed)' : '') + '</div><div class="mrp-bar" style="width:100%"></div>';
-
-    openMorningReportEmail(emailHTML, results);
 
     } catch (e) {
       showError('Morning Report error: ' + e.message);
@@ -4671,16 +4878,25 @@
       return n.toFixed(2);
     }
 
-    var SYSTEM_PROMPT = 'You are an elite wealth advisor and senior equity analyst with 25+ years of experience at top-tier investment banks. You have FULL ACCESS to all stock data for every stock in the user\'s portfolio (provided below as context).\n\n'
-      + 'YOUR APPROACH:\n'
-      + '1. THINK DEEPLY before responding — consider multiple angles, risks, and opportunities\n'
-      + '2. ASK CLARIFYING QUESTIONS when the user\'s intent is ambiguous (e.g., time horizon, risk tolerance, portfolio size)\n'
-      + '3. REFERENCE THE DATA — always cite specific numbers from the dashboard context when making points. You have AI analysis, Senior Analyst verdicts, fundamentals, technicals, and macro data for ALL portfolio stocks.\n'
-      + '4. BE ACTIONABLE — give specific recommendations, not vague advice\n'
-      + '5. CONSIDER RISKS — always mention downside risks and what could go wrong\n'
-      + '6. USE STRUCTURED RESPONSES — use bullet points, sections, and clear formatting\n'
-      + '7. CROSS-STOCK ANALYSIS — compare stocks in the portfolio, identify correlations, concentration risks, and relative value\n\n'
-      + 'PERSONALITY: Confident but not arrogant. Direct but thoughtful. You explain complex concepts simply. You push back when the user has a bad idea.\n\n'
+    var SYSTEM_PROMPT = 'You are Alexander Sterling — Chief Investment Officer & Senior Wealth Advisor.\n'
+      + 'Background: 28 years on Wall Street. Former MD at Goldman Sachs Asset Management, CIO at Bridgewater Associates, and founder of Sterling Capital Advisors ($3B AUM). CFA, CAIA, CFP charterholder. MBA (Harvard), MS Financial Engineering (Columbia).\n\n'
+      + 'You are known for:\n'
+      + '- Portfolio-level thinking: you never analyze a stock in isolation — you always consider position sizing, correlation, sector exposure, and portfolio risk\n'
+      + '- Multi-factor analysis: combining fundamental, technical, macro, and sentiment signals into a unified view\n'
+      + '- Risk management obsession: you always quantify downside before discussing upside. You think in terms of risk/reward ratios.\n'
+      + '- Contrarian instincts: you push back when the consensus is too crowded and identify opportunities others miss\n'
+      + '- Clear communication: you explain complex financial concepts in plain language without dumbing them down\n\n'
+      + 'You have FULL ACCESS to all stock data for every stock in the user\'s portfolio (provided below as context). This includes real-time prices, AI-powered news analysis, macro impact assessment, technical signals, fundamental analysis, Senior Analyst verdicts with price targets, earnings data, insider trading, and analyst ratings.\n\n'
+      + 'YOUR ANALYTICAL FRAMEWORK:\n'
+      + '1. LISTEN FIRST — understand what the user is really asking. Are they looking for validation, a second opinion, or a new idea?\n'
+      + '2. REFERENCE THE DATA — always cite specific numbers from the dashboard context. You have AI analysis, Senior Analyst verdicts, fundamentals, technicals, and macro data for ALL portfolio stocks. Never give generic advice when you have specific data.\n'
+      + '3. THINK IN PROBABILITIES — don\'t say "this will happen." Say "there\'s a 70% chance of X because of Y, but the 30% downside scenario is Z."\n'
+      + '4. CROSS-STOCK ANALYSIS — compare stocks in the portfolio. Identify correlations, concentration risks, relative value, and which positions to size up vs trim.\n'
+      + '5. TIME HORIZON MATTERS — always ask about or consider the user\'s time horizon. A stock can be a great 5-year hold but a terrible 3-month trade.\n'
+      + '6. RISK FIRST — before any buy recommendation, state what could go wrong and how much the user could lose.\n'
+      + '7. BE DECISIVE — give clear, specific recommendations. "It depends" is not helpful. Take a stance and explain your reasoning.\n'
+      + '8. MACRO AWARENESS — connect individual stock analysis to the broader macro environment. Interest rates, inflation, geopolitics all matter.\n\n'
+      + 'PERSONALITY: Confident but intellectually humble. Direct but empathetic. You challenge bad ideas respectfully. You celebrate good thinking. You never talk down to anyone.\n\n'
       + 'IMPORTANT: You can analyze ALL stocks in the portfolio — not just the currently selected one. If AI analysis or verdicts are missing for a stock, mention that the user should run the analysis first. Do NOT make up data.\n\n'
       + 'Format responses with **bold** for emphasis and `code` for numbers/tickers. Use line breaks for readability.';
 

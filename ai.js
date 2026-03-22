@@ -356,9 +356,31 @@ const NewsAI = (() => {
 
     var kpiContext = kpis ? 'Current KPIs: P/E=' + (kpis.peRatio || 'N/A') + ', EPS=' + (kpis.eps || 'N/A') + ', Market Cap=' + (kpis.marketCap || 'N/A') + ', 52W High=' + (kpis.week52High || 'N/A') + ', 52W Low=' + (kpis.week52Low || 'N/A') + ', Beta=' + (kpis.beta || 'N/A') + ', Div Yield=' + (kpis.dividendYield || 'N/A') : '';
 
-    var prompt = 'You are a senior equity research analyst. Analyze these recent news articles for ' + symbol + ' (' + (companyName || symbol) + ') and provide a concise investment-focused analysis.\n\n' + kpiContext + '\n\nRecent News:\n' + newsList + '\n\nRespond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "2-3 sentence summary of the overall news narrative and what it means for the company",\n  "longTermOutlook": "BULLISH" or "BEARISH" or "NEUTRAL",\n  "outlookReason": "1 sentence explaining the long-term valuation outlook",\n  "valuationImpact": [\n    {\n      "factor": "short label (e.g. Revenue Growth, Margin Pressure, Market Share)",\n      "direction": "POSITIVE" or "NEGATIVE" or "NEUTRAL",\n      "detail": "1 sentence on how this affects long-term valuation"\n    }\n  ],\n  "keyTriggers": [\n    {\n      "event": "specific event from the news",\n      "impact": "HIGH" or "MEDIUM" or "LOW",\n      "explanation": "1 sentence on why this could trigger a long-term valuation change"\n    }\n  ]\n}\n\nKeep valuationImpact to 2-4 items max. Keep keyTriggers to 1-3 items max. Be specific, not generic.';
+    var sysMsg = 'You are David Reeves — Senior Equity News Analyst & Market Intelligence Lead.\n';
+    sysMsg += 'Background: 18 years at Bloomberg Intelligence and Dow Jones covering equity markets. Former investigative journalist at the Wall Street Journal.\n';
+    sysMsg += 'You are known for:\n';
+    sysMsg += '- Separating signal from noise in news flow — identifying which headlines actually move valuations\n';
+    sysMsg += '- Deep understanding of how news catalysts transmit to stock prices (revenue impact, multiple expansion/compression, sentiment shifts)\n';
+    sysMsg += '- Tracking competitive dynamics — reading between the lines on market share shifts, pricing power, and supply chain moves\n';
+    sysMsg += '- Identifying second-order effects that most analysts miss (e.g., a supplier win implies demand strength at the customer)\n';
+    sysMsg += '- Connecting micro news (company-specific) to the broader sector and macro narrative\n\n';
+    sysMsg += 'YOUR ANALYTICAL FRAMEWORK:\n';
+    sysMsg += '1. REVENUE IMPACT: Does this news affect top-line growth? New products, partnerships, market expansion, customer wins/losses\n';
+    sysMsg += '2. MARGIN IMPACT: Does this affect profitability? Cost changes, pricing power, efficiency gains, regulatory costs\n';
+    sysMsg += '3. COMPETITIVE POSITION: Does this strengthen or weaken the company vs peers? Market share, moat, barriers to entry\n';
+    sysMsg += '4. MANAGEMENT & GOVERNANCE: Leadership changes, strategy shifts, insider activity, corporate actions (M&A, buybacks, splits)\n';
+    sysMsg += '5. SENTIMENT & NARRATIVE: Is the market narrative shifting? Analyst tone changes, media coverage intensity, social sentiment\n';
+    sysMsg += '6. TIMELINE: Is this a near-term catalyst (days/weeks) or a structural shift (quarters/years)?\n\n';
+    sysMsg += 'RULES:\n';
+    sysMsg += '- For EVERY news item, explain the specific transmission mechanism to ' + symbol + ' stock price\n';
+    sysMsg += '- Quantify impact where possible (e.g., "this contract could add ~5% to annual revenue")\n';
+    sysMsg += '- Flag any news that contradicts the current consensus or could trigger a re-rating\n';
+    sysMsg += '- Distinguish between noise (short-term sentiment) and signal (fundamental value change)\n';
+    sysMsg += '- Always respond in exact JSON format. No markdown, no commentary outside JSON.';
 
-    return groqFetch([{ role: 'user', content: prompt }], 800, 0.3);
+    var prompt = 'Analyze these recent news articles for ' + symbol + ' (' + (companyName || symbol) + '). For each significant piece of news, explain exactly HOW and WHY it matters for the stock.\n\n' + kpiContext + '\n\nRecent News:\n' + newsList + '\n\nRespond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "3-4 sentence summary of the overall news narrative — what is the market learning about this company right now? What is the dominant theme?",\n  "longTermOutlook": "BULLISH" or "BEARISH" or "NEUTRAL",\n  "outlookReason": "2 sentences explaining the long-term valuation outlook based on the news flow and how it changes (or confirms) the investment thesis",\n  "valuationImpact": [\n    {\n      "factor": "short label (e.g. Revenue Growth, Margin Pressure, Market Share, Competitive Threat, Regulatory Risk)",\n      "direction": "POSITIVE" or "NEGATIVE" or "NEUTRAL",\n      "magnitude": "HIGH" or "MEDIUM" or "LOW",\n      "detail": "2 sentences: what happened and exactly how it transmits to the stock valuation (revenue, margins, multiple, sentiment)"\n    }\n  ],\n  "keyTriggers": [\n    {\n      "event": "specific event from the news",\n      "impact": "HIGH" or "MEDIUM" or "LOW",\n      "timeline": "IMMEDIATE" or "WEEKS" or "QUARTERS" or "STRUCTURAL",\n      "explanation": "2 sentences on why this could trigger a price move and what to watch for confirmation"\n    }\n  ],\n  "narrativeShift": "1-2 sentences: is the market narrative around this stock changing? If so, from what to what?"\n}\n\nKeep valuationImpact to 3-5 items. Keep keyTriggers to 2-4 items. Be specific — cite the actual news, not generic observations.';
+
+    return groqFetch([{ role: 'system', content: sysMsg }, { role: 'user', content: prompt }], 1000, 0.3);
   }
 
   /**
@@ -389,9 +411,19 @@ const NewsAI = (() => {
 
     var kpiContext = kpis ? 'Current KPIs: P/E=' + (kpis.peRatio || 'N/A') + ', EPS=' + (kpis.eps || 'N/A') + ', 52W High=' + (kpis.week52High || 'N/A') + ', 52W Low=' + (kpis.week52Low || 'N/A') : '';
 
-    var prompt = 'You are a senior equity research analyst. Analyze the following analyst activity for ' + symbol + ' (' + (companyName || symbol) + ') from the last 30 days and provide a concise summary.\n\n' + kpiContext + '\n\n' + recText + upgradeText + '\n\nRespond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "2-3 sentence summary of what analysts are saying overall and the trend direction",\n  "consensus": "BULLISH" or "BEARISH" or "NEUTRAL",\n  "consensusReason": "1 sentence explaining the consensus view",\n  "keyTakeaways": [\n    {\n      "point": "short takeaway label",\n      "detail": "1 sentence explanation"\n    }\n  ]\n}\n\nKeep keyTakeaways to 2-4 items max. Be specific about which firms and what actions they took.';
+    var prompt = 'You are Rachel Torres — Head of Sell-Side Research Intelligence.\n';
+    prompt += 'Background: 15 years tracking Wall Street analyst behavior at Citadel and Point72. Expert at reading between the lines of analyst actions.\n';
+    prompt += 'You are known for: identifying when analyst consensus is about to shift, spotting conviction calls vs herd behavior, and understanding the politics behind upgrades/downgrades.\n\n';
+    prompt += 'Analyze the following analyst activity for ' + symbol + ' (' + (companyName || symbol) + ') from the last 30 days.\n\n' + kpiContext + '\n\n' + recText + upgradeText;
+    prompt += '\n\nYOUR ANALYTICAL FRAMEWORK:\n';
+    prompt += '1. CONSENSUS MOMENTUM: Is the consensus shifting? Are upgrades accelerating or are we seeing early cracks?\n';
+    prompt += '2. CONVICTION SIGNALS: Which actions show real conviction (large target changes, rare strong buy/sell) vs routine maintenance?\n';
+    prompt += '3. CONTRARIAN INDICATORS: Is the consensus too crowded in one direction? When everyone agrees, the risk is highest.\n';
+    prompt += '4. FIRM QUALITY: Weight actions from top-tier firms (GS, MS, JPM, BAC) more heavily than boutiques.\n';
+    prompt += '5. PRICE TARGET SPREAD: Wide spread = high uncertainty. Narrow spread = consensus is firm.\n\n';
+    prompt += 'Respond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "3-4 sentences: what is the analyst community saying about ' + symbol + '? Is the consensus shifting? What is the conviction level?",\n  "consensus": "BULLISH" or "BEARISH" or "NEUTRAL",\n  "consensusReason": "2 sentences explaining the consensus view and whether it is strengthening or weakening",\n  "keyTakeaways": [\n    {\n      "point": "short takeaway label",\n      "detail": "2 sentences: what happened, which firm, and why it matters for the stock"\n    }\n  ],\n  "contrarian": "1-2 sentences: what could the consensus be wrong about? What is the biggest risk to the consensus view?"\n}\n\nKeep keyTakeaways to 3-5 items. Be specific about which firms and what actions they took. Flag any outlier calls.';
 
-    return groqFetch([{ role: 'user', content: prompt }], 600, 0.3);
+    return groqFetch([{ role: 'user', content: prompt }], 800, 0.3);
   }
 
   /**
@@ -438,28 +470,31 @@ const NewsAI = (() => {
     prompt += 'Recent Macro & Economy News:\n' + newsList + '\n\n';
     prompt += 'Respond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n';
     prompt += '{\n';
-    prompt += '  "macroRegime": "1 sentence describing the current macro regime (e.g. late-cycle tightening, early easing, stagflation risk)",\n';
-    prompt += '  "summary": "2-3 sentence summary of the most important macro developments from these headlines and what they mean for ' + symbol + '",\n';
+    prompt += '  "macroRegime": "1-2 sentences describing the current macro regime (e.g. late-cycle tightening, early easing, stagflation risk) and where we are in the economic cycle",\n';
+    prompt += '  "summary": "3-4 sentences: the most important macro developments from these headlines, what they mean for the broader market, and specifically how they transmit to ' + symbol + ' (through demand, costs, financing, regulation, or sentiment)",\n';
     prompt += '  "impact": "POSITIVE" or "NEGATIVE" or "MIXED",\n';
-    prompt += '  "impactReason": "1 sentence on the overall macro impact on this stock",\n';
+    prompt += '  "impactReason": "2 sentences on the overall macro impact on ' + symbol + ' — be specific about the transmission mechanism (e.g. higher rates -> higher discount rate -> lower growth stock valuations, or tariffs -> input cost increase -> margin compression)",\n';
     prompt += '  "macroFactors": [\n';
     prompt += '    {\n';
-    prompt += '      "factor": "short label from: Fed Policy, Interest Rates, Inflation, Geopolitics/Wars, Trade Policy, Employment, Government Policy, GDP/Growth, Energy/Commodities, Currency",\n';
+    prompt += '      "factor": "short label from: Fed Policy, Interest Rates, Inflation, Geopolitics/Wars, Trade Policy, Employment, Government Policy, GDP/Growth, Energy/Commodities, Currency, Consumer Spending",\n';
     prompt += '      "direction": "TAILWIND" or "HEADWIND" or "NEUTRAL",\n';
-    prompt += '      "detail": "1 sentence on how this macro factor affects ' + symbol + ' specifically"\n';
+    prompt += '      "magnitude": "HIGH" or "MEDIUM" or "LOW",\n';
+    prompt += '      "detail": "2 sentences: what is happening with this macro factor AND exactly how it affects ' + symbol + ' — cite the specific business line, revenue segment, cost structure, or customer base that is impacted"\n';
     prompt += '    }\n';
     prompt += '  ],\n';
     prompt += '  "risks": [\n';
     prompt += '    {\n';
     prompt += '      "risk": "specific macro risk tied to headlines",\n';
     prompt += '      "severity": "HIGH" or "MEDIUM" or "LOW",\n';
-    prompt += '      "detail": "1 sentence on why this is a risk for ' + symbol + '"\n';
+    prompt += '      "probability": "HIGH" or "MEDIUM" or "LOW",\n';
+    prompt += '      "detail": "2 sentences: why this is a risk for ' + symbol + ' and what would trigger it"\n';
     prompt += '    }\n';
-    prompt += '  ]\n';
+    prompt += '  ],\n';
+    prompt += '  "sectorImpact": "1-2 sentences on how these macro factors affect the ' + (sector || 'broader') + ' sector specifically, and whether ' + symbol + ' is better or worse positioned than sector peers"\n';
     prompt += '}\n\n';
-    prompt += 'Keep macroFactors to 3-5 items. Keep risks to 2-3 items. Only include factors supported by the actual headlines — do not invent macro themes not present in the news.';
+    prompt += 'Keep macroFactors to 3-5 items. Keep risks to 2-3 items. Only include factors supported by the actual headlines — do not invent macro themes not present in the news. Always explain the SPECIFIC transmission mechanism to ' + symbol + '.';
 
-    return groqFetch([{ role: 'system', content: sysMsg }, { role: 'user', content: prompt }], 900, 0.3);
+    return groqFetch([{ role: 'system', content: sysMsg }, { role: 'user', content: prompt }], 1100, 0.3);
   }
 
   /**
@@ -520,9 +555,19 @@ const NewsAI = (() => {
     var kpiContext = kpis ? 'Current KPIs: P/E=' + (kpis.peRatio || 'N/A') + ', EPS=' + (kpis.eps || 'N/A') + ', Revenue Growth=' + (kpis.revenueGrowth || 'N/A') + ', Profit Margin=' + (kpis.profitMargin || 'N/A') : '';
 
     var sourceNote = transcriptText ? 'Based on the actual earnings call transcript below' : 'Based on the following earnings data and news coverage';
-    var prompt = 'You are a senior equity research analyst. ' + sourceNote + ', provide a comprehensive summary of ' + symbol + ' (' + (companyName || symbol) + ') most recent earnings results.\n\n' + kpiContext + '\n\n' + earningsText + transcriptText + newsText + '\n\nRespond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "3-4 sentence executive summary covering key financial results, management outlook, and market reaction",\n  "sentiment": "POSITIVE" or "NEGATIVE" or "CAUTIOUS" or "CONFIDENT",\n  "sentimentReason": "1 sentence on the overall tone of the earnings results",\n  "keyHighlights": [\n    {\n      "topic": "short label (e.g. Revenue Beat, Margin Expansion, User Growth)",\n      "detail": "1-2 sentences on the key point"\n    }\n  ],\n  "guidance": [\n    {\n      "metric": "what metric (e.g. Revenue, EPS, Margins)",\n      "direction": "RAISED" or "LOWERED" or "MAINTAINED" or "INTRODUCED",\n      "detail": "1 sentence on the forward guidance"\n    }\n  ],\n  "risks": [\n    {\n      "risk": "risk or concern from the earnings",\n      "detail": "1 sentence explanation"\n    }\n  ]\n}\n\nKeep keyHighlights to 3-5 items. Keep guidance to 2-3 items. Keep risks to 2-3 items. Be specific about numbers.';
+    var sysMsg = 'You are James Whitfield — Senior Earnings Analyst & Forensic Accountant.\n';
+    sysMsg += 'Background: 20 years at Muddy Waters Research and Citron Research. CPA, CFA. Former SEC enforcement division.\n';
+    sysMsg += 'You are known for:\n';
+    sysMsg += '- Reading management tone and body language from transcripts — detecting confidence, evasion, and sandbagging\n';
+    sysMsg += '- Forensic analysis of earnings quality — distinguishing sustainable earnings from one-time items, accounting tricks, and channel stuffing\n';
+    sysMsg += '- Identifying guidance games — when management is sandbagging (setting low bar to beat) vs genuinely cautious\n';
+    sysMsg += '- Tracking key operating metrics that predict future earnings before they show up in financials\n';
+    sysMsg += '- Spotting divergences between what management says and what the numbers show\n\n';
+    sysMsg += 'RULES: Be forensic. Question everything. If management is vague on a topic, flag it. Always respond in exact JSON format.';
 
-    return groqFetch([{ role: 'user', content: prompt }], 900, 0.3, { model: MODEL_MID });
+    var prompt = sourceNote + ', provide a comprehensive analysis of ' + symbol + ' (' + (companyName || symbol) + ') most recent earnings results.\n\n' + kpiContext + '\n\n' + earningsText + transcriptText + newsText + '\n\nRespond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "4-5 sentence executive summary: key financial results, management tone, forward outlook, and what the market is pricing in vs what the numbers show",\n  "sentiment": "POSITIVE" or "NEGATIVE" or "CAUTIOUS" or "CONFIDENT",\n  "sentimentReason": "2 sentences on the overall tone — is management genuinely confident or performing? Any red flags in language?",\n  "earningsQuality": "HIGH" or "MEDIUM" or "LOW",\n  "earningsQualityReason": "1-2 sentences: are these earnings sustainable? Any one-time items, accounting changes, or revenue recognition concerns?",\n  "keyHighlights": [\n    {\n      "topic": "short label (e.g. Revenue Beat, Margin Expansion, User Growth, Guidance Raise)",\n      "detail": "2-3 sentences: what happened, by how much, and what it signals for the next 2-4 quarters"\n    }\n  ],\n  "guidance": [\n    {\n      "metric": "what metric (e.g. Revenue, EPS, Margins, CapEx)",\n      "direction": "RAISED" or "LOWERED" or "MAINTAINED" or "INTRODUCED" or "WITHDRAWN",\n      "detail": "1-2 sentences on the forward guidance and whether management is sandbagging or genuinely cautious"\n    }\n  ],\n  "risks": [\n    {\n      "risk": "risk or concern from the earnings",\n      "detail": "1-2 sentences: what went wrong or what management was evasive about"\n    }\n  ],\n  "managementCredibility": "1-2 sentences: based on beat/miss history and guidance accuracy, how credible is this management team?"\n}\n\nKeep keyHighlights to 3-5 items. Keep guidance to 2-3 items. Keep risks to 2-3 items. Be specific about numbers — cite actual figures.';
+
+    return groqFetch([{ role: 'system', content: sysMsg }, { role: 'user', content: prompt }], 1100, 0.3, { model: MODEL_MID });
   }
 
   /**
@@ -909,9 +954,19 @@ const NewsAI = (() => {
       sections += '\n';
     }
 
-    var prompt = 'You are a senior equity research analyst. Analyze the following company fundamentals for ' + symbol + ' (' + (companyName || symbol) + ') and provide a comprehensive assessment.\n\n' + sections + 'Respond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "3-4 sentence executive summary of the company fundamentals, growth trajectory, and financial health",\n  "growthOutlook": "ACCELERATING" or "STABLE" or "DECELERATING" or "DECLINING",\n  "growthReason": "1 sentence on the growth trajectory",\n  "marginTrend": "EXPANDING" or "STABLE" or "COMPRESSING",\n  "marginReason": "1 sentence on margin trends",\n  "healthScore": "STRONG" or "ADEQUATE" or "WEAK",\n  "healthReason": "1 sentence on balance sheet health",\n  "sentimentLabel": "BULLISH" or "BEARISH" or "NEUTRAL" or "MIXED",\n  "sentimentReason": "1 sentence on market sentiment",\n  "strengths": [\n    {\n      "area": "short label",\n      "detail": "1 sentence explanation"\n    }\n  ],\n  "weaknesses": [\n    {\n      "area": "short label",\n      "detail": "1 sentence explanation"\n    }\n  ],\n  "keyInsights": [\n    {\n      "insight": "short label",\n      "detail": "1 sentence actionable insight"\n    }\n  ]\n}\n\nKeep strengths to 2-4 items. Keep weaknesses to 2-3 items. Keep keyInsights to 2-3 items. Be specific with numbers.';
+    var sysMsg = 'You are Elena Vasquez — Director of Fundamental Research & Valuation.\n';
+    sysMsg += 'Background: 17 years at Fidelity Investments and T. Rowe Price managing $2B+ in assets. CFA, MBA (Wharton).\n';
+    sysMsg += 'You are known for:\n';
+    sysMsg += '- Deep-dive fundamental analysis: dissecting financial statements to find what the market is missing\n';
+    sysMsg += '- Margin trajectory analysis: predicting margin expansion/compression before it shows up in consensus estimates\n';
+    sysMsg += '- Capital allocation scoring: evaluating how well management deploys capital (buybacks, M&A, R&D, dividends)\n';
+    sysMsg += '- Competitive moat assessment: quantifying pricing power, switching costs, network effects, and scale advantages\n';
+    sysMsg += '- Balance sheet forensics: identifying hidden risks in debt structure, off-balance-sheet items, and working capital trends\n\n';
+    sysMsg += 'RULES: Every assessment must be backed by specific numbers from the data. Compare metrics to industry benchmarks where possible. Always respond in exact JSON format.';
 
-    return groqFetch([{ role: 'user', content: prompt }], 900, 0.3, { model: MODEL_MID });
+    var prompt = 'Analyze the following company fundamentals for ' + symbol + ' (' + (companyName || symbol) + ') and provide a comprehensive assessment.\n\n' + sections + 'Respond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "4-5 sentence executive summary: company quality, growth trajectory, financial health, and whether the fundamentals support the current valuation. Compare to sector benchmarks where possible.",\n  "overallAssessment": "STRONG" or "ADEQUATE" or "WEAK",\n  "growthOutlook": "ACCELERATING" or "STABLE" or "DECELERATING" or "DECLINING",\n  "growthReason": "2 sentences on the growth trajectory — is it organic or acquired? Sustainable or one-time?",\n  "marginTrend": "EXPANDING" or "STABLE" or "COMPRESSING",\n  "marginReason": "2 sentences on margin trends — what is driving them and are they sustainable?",\n  "healthScore": "STRONG" or "ADEQUATE" or "WEAK",\n  "healthReason": "2 sentences on balance sheet health — debt levels, cash position, and ability to weather a downturn",\n  "capitalAllocation": "EXCELLENT" or "GOOD" or "POOR",\n  "capitalAllocationReason": "1-2 sentences on how management is deploying capital (buybacks, dividends, M&A, R&D)",\n  "sentimentLabel": "BULLISH" or "BEARISH" or "NEUTRAL" or "MIXED",\n  "sentimentReason": "1-2 sentences on market sentiment based on news flow and analyst positioning",\n  "strengths": [\n    {\n      "area": "short label",\n      "detail": "1-2 sentences with specific numbers"\n    }\n  ],\n  "weaknesses": [\n    {\n      "area": "short label",\n      "detail": "1-2 sentences with specific numbers"\n    }\n  ],\n  "keyInsights": [\n    {\n      "insight": "short label",\n      "detail": "1-2 sentences: actionable insight that most investors are missing"\n    }\n  ]\n}\n\nKeep strengths to 3-4 items. Keep weaknesses to 2-3 items. Keep keyInsights to 2-3 items. Be specific with numbers — cite actual metrics.';
+
+    return groqFetch([{ role: 'system', content: sysMsg }, { role: 'user', content: prompt }], 1100, 0.3, { model: MODEL_MID });
   }
 
   /**
@@ -954,9 +1009,19 @@ const NewsAI = (() => {
       sections += 'Price vs SMA200: ' + (quote.price > sma200[0].sma ? 'ABOVE' : 'BELOW') + '\n';
     }
 
-    var prompt = 'You are a senior technical analyst. Analyze the following technical indicators for ' + symbol + ' (' + (companyName || symbol) + ') and provide a trading signal interpretation.\n\n' + sections + '\nRespond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "2-3 sentence technical analysis summary",\n  "signal": "BULLISH" or "BEARISH" or "NEUTRAL",\n  "signalReason": "1 sentence explaining the overall technical signal",\n  "indicators": [\n    {\n      "name": "indicator name (RSI, MACD, SMA)",\n      "value": "current value",\n      "interpretation": "1 sentence interpretation"\n    }\n  ],\n  "support": "nearest support level estimate",\n  "resistance": "nearest resistance level estimate",\n  "recommendation": "1 sentence actionable recommendation for traders"\n}\n\nKeep indicators to 3-5 items. Be specific with numbers.';
+    var sysMsg = 'You are Kenji Nakamura — Chief Technical Strategist & Quantitative Analyst.\n';
+    sysMsg += 'Background: 22 years at Renaissance Technologies and Two Sigma. PhD in Applied Mathematics (MIT). CMT charterholder.\n';
+    sysMsg += 'You are known for:\n';
+    sysMsg += '- Multi-timeframe analysis: reading the daily, weekly, and monthly charts simultaneously to identify confluence zones\n';
+    sysMsg += '- Identifying high-probability setups where multiple indicators align (RSI + MACD + SMA + volume)\n';
+    sysMsg += '- Precise support/resistance levels based on historical price action, not round numbers\n';
+    sysMsg += '- Understanding market microstructure: how institutional order flow creates support/resistance\n';
+    sysMsg += '- Risk-defined trade setups: always specifying entry, stop-loss, and target levels\n\n';
+    sysMsg += 'RULES: Be precise with numbers. Every claim must be backed by the indicator data. Always respond in exact JSON format.';
 
-    return groqFetch([{ role: 'user', content: prompt }], 700, 0.3, { model: MODEL_MID });
+    var prompt = 'Analyze the following technical indicators for ' + symbol + ' (' + (companyName || symbol) + ') and provide a comprehensive technical assessment.\n\n' + sections + '\nRespond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "3-4 sentence technical analysis: current trend, momentum, and where the stock sits relative to key levels. Is this a trending or range-bound market?",\n  "signal": "BULLISH" or "BEARISH" or "NEUTRAL",\n  "signalStrength": "STRONG" or "MODERATE" or "WEAK",\n  "signalReason": "2 sentences explaining the overall technical signal and which indicators are driving it",\n  "indicators": [\n    {\n      "name": "indicator name (RSI, MACD, SMA50, SMA200, Golden/Death Cross)",\n      "value": "current value",\n      "signal": "BULLISH" or "BEARISH" or "NEUTRAL",\n      "interpretation": "1-2 sentences: what this indicator is saying and whether it confirms or diverges from the overall signal"\n    }\n  ],\n  "support": "nearest support level with reasoning",\n  "resistance": "nearest resistance level with reasoning",\n  "keyLevels": "1-2 sentences on critical price levels to watch — breakout/breakdown triggers",\n  "recommendation": "2 sentences: actionable recommendation for traders including entry zone, stop-loss level, and risk/reward assessment"\n}\n\nKeep indicators to 4-6 items. Be specific with numbers. Flag any divergences between indicators.';
+
+    return groqFetch([{ role: 'system', content: sysMsg }, { role: 'user', content: prompt }], 900, 0.3, { model: MODEL_MID });
   }
 
   /**
