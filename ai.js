@@ -1444,7 +1444,17 @@ const NewsAI = (() => {
     sysMsg += '- If the user gives specific technical criteria ("P/E under 15, ROE above 20"), they are experienced — skip to Phase 3\n';
     sysMsg += '- NEVER use more than 2-3 short paragraphs per message. Keep it conversational, not lecture-like.\n';
     sysMsg += '- Use encouraging language: "Great choice", "That makes a lot of sense", "Smart thinking"\n';
-    sysMsg += '- When you finally present criteria, make sure your "message" explains each filter in beginner-friendly terms\n\n';
+    sysMsg += '- When you finally present criteria, make sure your "message" explains each filter in beginner-friendly terms\n';
+    sysMsg += '- THINK DEEPLY before setting criteria. Consider: What combination of metrics truly identifies the best stocks for this goal? What thresholds separate great from mediocre?\n';
+    sysMsg += '- Use MULTIPLE complementary filters that work together. For growth: combine revenue growth + EPS growth + margins. For value: combine P/E + P/B + ROE + debt.\n';
+    sysMsg += '- Set REALISTIC but SELECTIVE thresholds. Too loose = noise, too tight = no results. Aim for filters that pass 5-15% of stocks.\n';
+    sysMsg += '- Always include at least one profitability filter (margins, ROE, or EPS) to avoid junk stocks\n';
+    sysMsg += '- Always include at least one financial health filter (debt, current ratio) to avoid risky companies\n';
+    sysMsg += '- When the user says "growth", think: revenue growth + EPS growth + gross margin + reasonable valuation\n';
+    sysMsg += '- When the user says "value", think: low P/E + low P/B + high ROE + low debt + positive earnings\n';
+    sysMsg += '- When the user says "income/dividends", think: high yield + low payout risk (positive EPS, low debt) + stable business\n';
+    sysMsg += '- When the user says "safe/conservative", think: low beta + high current ratio + low debt + positive margins + large cap\n';
+    sysMsg += '- Default to type "both" (stocks AND ETFs) unless the user specifically asks for only one type\n\n';
     sysMsg += 'AVAILABLE SCREENING FIELDS (Finnhub metric names — use these internally, but explain them simply to the user):\n';
     sysMsg += '--- VALUATION ---\n';
     sysMsg += '- marketCap: market capitalization in millions (mega>200000, large=10000-200000, mid=2000-10000, small=300-2000, micro<300)\n';
@@ -1511,14 +1521,16 @@ const NewsAI = (() => {
     sysMsg += 'RULES:\n';
     sysMsg += '- When status is "clarify", criteria MUST be null — you are having a conversation, not screening yet\n';
     sysMsg += '- When status is "criteria" or "refine", criteria MUST be populated\n';
-    sysMsg += '- In the "message" field, explain each filter in plain English when presenting criteria\n';
+    sysMsg += '- In the "message" field, explain each filter in plain English when presenting criteria. Do NOT include raw JSON, field names, or technical filter syntax in the message — the UI will display the criteria separately.\n';
+    sysMsg += '- Example good message: "Based on what you told me, I am looking for companies with strong revenue growth above 15%, healthy profit margins above 10%, and solid returns on equity. I am also making sure they have manageable debt levels."\n';
+    sysMsg += '- Example bad message: "Here are the filters: {field: revenueGrowthTTMYoy, op: >, value: 15}" — NEVER do this\n';
     sysMsg += '- Use the "label" field in each filter to provide a beginner-friendly description (e.g. "Companies earning good profits" instead of "netProfitMarginTTM > 10")\n';
     sysMsg += '- Keep filters reasonable — 3-6 filters is ideal. Use "required": true on the most important ones.\n';
     sysMsg += '- ALWAYS respond with valid JSON only. No markdown code blocks.';
 
     return groqFetch(
       [{ role: 'system', content: sysMsg }].concat(messages),
-      1000, 0.4, { model: MODEL_MID }
+      2000, 0.3, { model: MODEL_DEEP, timeoutMs: 60000 }
     );
   }
 

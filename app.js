@@ -5851,8 +5851,11 @@
         } else if (response.status === 'criteria' || response.status === 'refine') {
           lastCriteria = response.criteria;
 
-          // Show the message
-          var msgHTML = fmtText(response.message || 'Here are the criteria I\'ll use:');
+          // Show the message — strip any raw JSON that leaked into the conversational text
+          var rawMsg = response.message || 'Here are the criteria I\'ll use:';
+          // Remove any JSON-like blocks from the message
+          rawMsg = rawMsg.replace(/\{[^}]*"field"[^}]*\}/g, '').replace(/\n\s*-\s*\{[^}]*\}/g, '').replace(/\n{3,}/g, '\n\n').trim();
+          var msgHTML = fmtText(rawMsg);
           msgHTML += buildCriteriaHTML(response.criteria);
 
           // Add confirm/edit buttons
