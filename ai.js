@@ -202,6 +202,16 @@ const NewsAI = (() => {
       if (cleaned.indexOf('```') === 0) {
         cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
       }
+      // Try to extract JSON object even if surrounded by text
+      if (cleaned.charAt(0) !== '{') {
+        var jsonStart = cleaned.indexOf('{');
+        var jsonEnd = cleaned.lastIndexOf('}');
+        if (jsonStart !== -1 && jsonEnd > jsonStart) {
+          cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+        }
+      }
+      // Remove trailing commas before } or ]
+      cleaned = cleaned.replace(/,\s*([}\]])/g, '$1');
       try { return JSON.parse(cleaned); } catch (e) {
         if (attempt < retries - 1) { await new Promise(function(r) { setTimeout(r, 2000); }); continue; }
         throw new Error('Gemini returned invalid JSON.');
@@ -222,7 +232,7 @@ const NewsAI = (() => {
 
     for (var retry = 0; retry < 3; retry++) {
       if (retry > 0) {
-        var waitSec = 15 + retry * 15; // 30s, 45s
+        var waitSec = 5 + retry * 5; // 10s, 15s — faster retries
         console.log('[AI] Retry ' + retry + '/2 — waiting ' + waitSec + 's...');
         await new Promise(function(r) { setTimeout(r, waitSec * 1000); });
       }
@@ -328,6 +338,16 @@ const NewsAI = (() => {
       if (cleaned.indexOf('```') === 0) {
         cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
       }
+      // Try to extract JSON object even if surrounded by text
+      if (cleaned.charAt(0) !== '{') {
+        var jsonStart = cleaned.indexOf('{');
+        var jsonEnd = cleaned.lastIndexOf('}');
+        if (jsonStart !== -1 && jsonEnd > jsonStart) {
+          cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+        }
+      }
+      // Remove trailing commas before } or ]
+      cleaned = cleaned.replace(/,\s*([}\]])/g, '$1');
       try {
         return JSON.parse(cleaned);
       } catch (e) {
