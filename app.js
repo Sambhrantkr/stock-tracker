@@ -5310,14 +5310,28 @@
 
       var symbols = [];
       try {
-        // /stock/symbol returns a large payload (~5MB) — use a longer timeout than fhGet's default 15s
         var symUrl = 'https://finnhub.io/api/v1/stock/symbol?exchange=US&token=' + (StockAPI.getKey());
-        var controller = new AbortController();
-        var timeoutId = setTimeout(function() { controller.abort(); }, 45000);
-        var res = await fetch(symUrl, { signal: controller.signal });
-        clearTimeout(timeoutId);
-        if (!res.ok) throw new Error('Finnhub HTTP ' + res.status);
-        var data = await res.json();
+        var data = null;
+
+        // Try direct fetch first (works locally, may fail on GitHub Pages due to CORS)
+        try {
+          var controller = new AbortController();
+          var timeoutId = setTimeout(function() { controller.abort(); }, 45000);
+          var res = await fetch(symUrl, { signal: controller.signal });
+          clearTimeout(timeoutId);
+          if (res.ok) data = await res.json();
+        } catch(directErr) {
+          // Direct fetch failed (likely CORS) — fall through to proxy
+        }
+
+        // Fallback: use CORS proxy chain
+        if (!data) {
+          appendMsg('assistant', '🔄 Direct fetch blocked — trying via proxy...');
+          var proxyRes = await StockAPI.fetchViaProxy(symUrl, { timeout: 60000 });
+          var proxyText = await proxyRes.text();
+          data = JSON.parse(proxyText);
+        }
+
         if (Array.isArray(data)) {
           symbols = data
             .filter(function(s) {
@@ -5330,7 +5344,7 @@
             });
         }
       } catch(e) {
-        if (e.name === 'AbortError') throw new Error('Finnhub stock list request timed out (45s). Try again — it may be slow on first load.');
+        if (e.name === 'AbortError') throw new Error('Finnhub stock list request timed out. Try again — it may be slow on first load.');
         throw new Error('Failed to fetch stock universe: ' + (e.message || 'Network error'));
       }
 
