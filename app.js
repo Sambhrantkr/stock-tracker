@@ -5458,34 +5458,53 @@
       if (criteria.type === 'stock') candidates = candidates.filter(function(s) { return s.type === 'stock'; });
       else if (criteria.type === 'etf') candidates = candidates.filter(function(s) { return s.type === 'etf'; });
 
-      // Limit universe to a manageable size for API calls
-      // Shuffle and take a sample to get diverse results
-      var maxToScreen = Math.min(candidates.length, 800);
-      var shuffled = candidates.slice();
-      for (var i = shuffled.length - 1; i > 0; i--) {
+      // Screen ALL candidates — no sampling limit
+      // Shuffle to get diverse results across runs
+      var toScreen = candidates.slice();
+      for (var i = toScreen.length - 1; i > 0; i--) {
         var j = Math.floor(Math.random() * (i + 1));
-        var tmp = shuffled[i]; shuffled[i] = shuffled[j]; shuffled[j] = tmp;
+        var tmp = toScreen[i]; toScreen[i] = toScreen[j]; toScreen[j] = tmp;
       }
-      // But prioritize well-known stocks — put tracked stocks and common ones first
+      // But prioritize tracked stocks at the front
       var prioritized = [];
       var rest = [];
       var knownSymbols = {};
       trackedStocks.forEach(function(s) { knownSymbols[s.symbol] = true; });
-      shuffled.forEach(function(s) {
+      toScreen.forEach(function(s) {
         if (knownSymbols[s.symbol]) prioritized.push(s);
         else rest.push(s);
       });
-      var toScreen = prioritized.concat(rest).slice(0, maxToScreen);
+      toScreen = prioritized.concat(rest);
 
       var progressFill = document.getElementById('screener-progress-fill');
       var progressEl = resultsEl.querySelector('.screener-progress');
       var matches = [];
       var screened = 0;
       var errors = 0;
-      var batchSize = 5; // 5 concurrent — safe with 2 Finnhub keys (120/min)
-      var delayBetweenBatches = 2800; // ~107 calls/min with 2 keys
+      var screenCancelled = false;
+
+      // Add stop button to progress area
+      var stopBtn = document.createElement('button');
+      stopBtn.textContent = '⏹ Stop';
+      stopBtn.className = 'screener-confirm-btn edit';
+      stopBtn.style.cssText = 'margin-left:0.5rem;font-size:0.7rem;padding:0.2rem 0.6rem;';
+      stopBtn.addEventListener('click', function() { screenCancelled = true; });
+      if (progressEl) progressEl.appendChild(stopBtn);
+
+      // Phase 1: Fast filter using only getBasicFinancials (1 API call per stock)
+      // Phase 2: Enrich matches with getQuote + getProfile
+      var needsPrice = criteria.filters && criteria.filters.some(function(f) {
+        return ['price','changePct','pctFrom52High','pctFrom52Low'].indexOf(f.field) !== -1;
+      });
+      var needsSector = !!criteria.sector;
+      var needsMcap = (criteria.filters && criteria.filters.some(function(f) { return f.field === 'marketCap'; })) || criteria.sortBy === 'marketCap';
+
+      // Adaptive batch size: bigger batches for filter-only, smaller when needing extra calls
+      var batchSize = (needsPrice || needsSector || needsMcap) ? 5 : 8;
+      var delayBetweenBatches = (needsPrice || needsSector || needsMcap) ? 2800 : 1800;
 
       for (var bi = 0; bi < toScreen.length; bi += batchSize) {
+        if (screenCancelled) break;
         var batch = toScreen.slice(bi, bi + batchSize);
         var promises = batch.map(function(stock) {
           return screenOneStock(stock, criteria).then(function(result) {
@@ -5500,14 +5519,10 @@
 
         var pct = Math.round(screened / toScreen.length * 100);
         if (progressFill) progressFill.style.width = pct + '%';
-        if (progressEl) progressEl.firstChild.textContent = '🔍 Screened ' + screened + '/' + toScreen.length + ' from ' + candidates.length + ' candidates (' + matches.length + ' matches)...';
-
-        // Check if we have enough matches — only stop early if we have plenty
-        var limit = (criteria.limit || 25);
-        if (matches.length >= limit * 3 && screened >= 200) break; // Got plenty, stop early
+        if (progressEl) progressEl.firstChild.textContent = '🔍 Screened ' + screened + '/' + toScreen.length + ' (' + matches.length + ' matches)...';
 
         // Rate limit delay between batches
-        if (bi + batchSize < toScreen.length) {
+        if (bi + batchSize < toScreen.length && !screenCancelled) {
           await new Promise(function(r) { setTimeout(r, delayBetweenBatches); });
         }
       }
@@ -5525,7 +5540,9 @@
       currentSort = { field: sortField, dir: sortDir };
       renderResults();
 
-      var summary = '✅ Found ' + matches.length + ' matches out of ' + screened + ' screened.';
+      var summary = screenCancelled
+        ? '⏹ Stopped. Found ' + matches.length + ' matches out of ' + screened + '/' + toScreen.length + ' screened.'
+        : '✅ Found ' + matches.length + ' matches out of ' + screened + ' screened.';
       if (errors > 0) summary += ' (' + errors + ' had data errors)';
       if (matches.length > (criteria.limit || 25)) summary += ' Showing top ' + (criteria.limit || 25) + '.';
       appendMsg('assistant', summary + '\n\nYou can click column headers to re-sort, or click **+ Add** to add any stock to your watchlist.\n\nWant to refine the criteria? Just tell me what to change.');
@@ -5534,7 +5551,7 @@
     // Screen a single stock against criteria
     async function screenOneStock(stock, criteria) {
       try {
-        // Get metrics from Finnhub
+        // Phase 1: Get basic financials (1 API call — has most filter data)
         var data = await StockAPI.getBasicFinancials(stock.symbol);
         if (!data) return null;
 
@@ -5573,69 +5590,27 @@
         if (data.week52High && data.week52High !== 'N/A') metrics['52WeekHigh'] = parseFloat(data.week52High.replace('$',''));
         if (data.week52Low && data.week52Low !== 'N/A') metrics['52WeekLow'] = parseFloat(data.week52Low.replace('$',''));
 
-        // Check sector filter — need profile for this
-        if (criteria.sector) {
-          var profile = await StockAPI.getProfile(stock.symbol);
-          if (profile) {
-            metrics.sector = profile.sector;
-            metrics.marketCap = profile.marketCap ? profile.marketCap / 1e6 : null; // in millions
-            metrics.name = profile.name || stock.name;
-          }
-          var sectorList = Array.isArray(criteria.sector) ? criteria.sector : [criteria.sector];
-          var sectorMatch = false;
-          if (metrics.sector) {
-            var sLower = metrics.sector.toLowerCase();
-            sectorList.forEach(function(s) { if (sLower.indexOf(s.toLowerCase()) !== -1) sectorMatch = true; });
-          }
-          if (!sectorMatch) return null;
+        // === PHASE 1: Apply basic filters (no extra API calls needed) ===
+        var PRICE_FIELDS = { price: 1, changePct: 1, pctFrom52High: 1, pctFrom52Low: 1 };
+        var PROFILE_FIELDS = { marketCap: 1, sector: 1 };
+        var basicFilters = [];
+        var priceFilters = [];
+        var profileFilters = [];
+        if (criteria.filters) {
+          criteria.filters.forEach(function(f) {
+            if (PRICE_FIELDS[f.field]) priceFilters.push(f);
+            else if (PROFILE_FIELDS[f.field]) profileFilters.push(f);
+            else basicFilters.push(f);
+          });
         }
 
-        // If we need marketCap but don't have it yet
-        if (!metrics.marketCap) {
-          var needsMcap = criteria.filters && criteria.filters.some(function(f) { return f.field === 'marketCap'; });
-          var sortNeedsMcap = criteria.sortBy === 'marketCap';
-          if (needsMcap || sortNeedsMcap) {
-            if (!criteria.sector) { // didn't fetch profile yet
-              var prof = await StockAPI.getProfile(stock.symbol);
-              if (prof) {
-                metrics.marketCap = prof.marketCap ? prof.marketCap / 1e6 : null;
-                metrics.name = prof.name || stock.name;
-              }
-            }
-          }
-        }
-
-        // Get quote for price data (before filters so price-based filters work)
-        try {
-          var quote = await StockAPI.getQuote(stock.symbol);
-          if (quote) {
-            metrics.price = quote.price;
-            metrics.change = quote.change;
-            metrics.changePct = quote.changePct;
-            // Compute distance from 52-week high/low
-            if (metrics['52WeekHigh'] && quote.price) {
-              metrics.pctFrom52High = ((quote.price - metrics['52WeekHigh']) / metrics['52WeekHigh']) * 100;
-            }
-            if (metrics['52WeekLow'] && quote.price) {
-              metrics.pctFrom52Low = ((quote.price - metrics['52WeekLow']) / metrics['52WeekLow']) * 100;
-            }
-          }
-        } catch(e) {}
-
-        // Apply filters
-        if (criteria.filters && criteria.filters.length) {
+        // Apply basic filters first (free — data already loaded)
+        if (basicFilters.length) {
           var failCount = 0;
-          var totalFilters = criteria.filters.length;
-          for (var i = 0; i < criteria.filters.length; i++) {
-            var f = criteria.filters[i];
+          for (var i = 0; i < basicFilters.length; i++) {
+            var f = basicFilters[i];
             var val = metrics[f.field];
-            if (val == null) {
-              // Missing data: if filter is marked required, reject; otherwise skip this filter
-              if (f.required) return null;
-              failCount++;
-              continue;
-            }
-
+            if (val == null) { if (f.required) return null; failCount++; continue; }
             var passed = true;
             if (f.op === '>' && !(val > f.value)) passed = false;
             if (f.op === '<' && !(val < f.value)) passed = false;
@@ -5647,8 +5622,82 @@
             }
             if (!passed) return null;
           }
-          // If more than half the filters had missing data, skip this stock
-          if (totalFilters > 0 && failCount > totalFilters * 0.5) return null;
+          if (basicFilters.length > 0 && failCount > basicFilters.length * 0.5) return null;
+        }
+
+        // === PHASE 2: Fetch profile only if needed by sector/marketCap filters or sort ===
+        var needsSector = !!criteria.sector;
+        var needsMcap = profileFilters.length > 0 || criteria.sortBy === 'marketCap';
+        if (needsSector || needsMcap) {
+          try {
+            var profile = await StockAPI.getProfile(stock.symbol);
+            if (profile) {
+              metrics.sector = profile.sector;
+              metrics.marketCap = profile.marketCap ? profile.marketCap / 1e6 : null;
+              metrics.name = profile.name || stock.name;
+            }
+          } catch(e) {}
+
+          // Apply sector filter
+          if (criteria.sector) {
+            var sectorList = Array.isArray(criteria.sector) ? criteria.sector : [criteria.sector];
+            var sectorMatch = false;
+            if (metrics.sector) {
+              var sLower = metrics.sector.toLowerCase();
+              sectorList.forEach(function(s) { if (sLower.indexOf(s.toLowerCase()) !== -1) sectorMatch = true; });
+            }
+            if (!sectorMatch) return null;
+          }
+
+          // Apply marketCap filters
+          for (var pi = 0; pi < profileFilters.length; pi++) {
+            var pf = profileFilters[pi];
+            var pval = metrics[pf.field];
+            if (pval == null) { if (pf.required) return null; continue; }
+            var pp = true;
+            if (pf.op === '>' && !(pval > pf.value)) pp = false;
+            if (pf.op === '<' && !(pval < pf.value)) pp = false;
+            if (pf.op === '>=' && !(pval >= pf.value)) pp = false;
+            if (pf.op === '<=' && !(pval <= pf.value)) pp = false;
+            if (pf.op === 'between') {
+              if (!Array.isArray(pf.value) || pf.value.length !== 2) pp = false;
+              else if (!(pval >= pf.value[0] && pval <= pf.value[1])) pp = false;
+            }
+            if (!pp) return null;
+          }
+        }
+
+        // === PHASE 3: Fetch quote only if needed by price filters, or for final enrichment ===
+        try {
+          var quote = await StockAPI.getQuote(stock.symbol);
+          if (quote) {
+            metrics.price = quote.price;
+            metrics.change = quote.change;
+            metrics.changePct = quote.changePct;
+            if (metrics['52WeekHigh'] && quote.price) {
+              metrics.pctFrom52High = ((quote.price - metrics['52WeekHigh']) / metrics['52WeekHigh']) * 100;
+            }
+            if (metrics['52WeekLow'] && quote.price) {
+              metrics.pctFrom52Low = ((quote.price - metrics['52WeekLow']) / metrics['52WeekLow']) * 100;
+            }
+          }
+        } catch(e) {}
+
+        // Apply price-based filters
+        for (var qi = 0; qi < priceFilters.length; qi++) {
+          var qf = priceFilters[qi];
+          var qval = metrics[qf.field];
+          if (qval == null) { if (qf.required) return null; continue; }
+          var qp = true;
+          if (qf.op === '>' && !(qval > qf.value)) qp = false;
+          if (qf.op === '<' && !(qval < qf.value)) qp = false;
+          if (qf.op === '>=' && !(qval >= qf.value)) qp = false;
+          if (qf.op === '<=' && !(qval <= qf.value)) qp = false;
+          if (qf.op === 'between') {
+            if (!Array.isArray(qf.value) || qf.value.length !== 2) qp = false;
+            else if (!(qval >= qf.value[0] && qval <= qf.value[1])) qp = false;
+          }
+          if (!qp) return null;
         }
 
         return { symbol: stock.symbol, name: metrics.name || stock.name, type: stock.type, metrics: metrics };
