@@ -706,6 +706,6 @@ const StockAPI = (() => {
     getNews, getEarnings, computePEHistory, getRecommendations,
     getUpgradeDowngrade, getChartData, getMarketNews, getEarningsCalendar,
     getPeers, getInsiderTransactions, getETFHoldings, getSECFilings,
-    getEPSEstimates, getFHCallsInLastMinute,
+    getEPSEstimates, getFHCallsInLastMinute, fhGet,
   };
 })();

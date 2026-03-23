@@ -343,7 +343,7 @@ const NewsAI = (() => {
   /**
    * Analyze news articles for a stock
    */
-  async function analyzeNews(symbol, companyName, articles, kpis) {
+  async function analyzeNews(symbol, companyName, articles, kpis, isETF) {
     if (!hasKey()) throw new Error('Groq API key required for AI analysis.');
     if (!articles || !articles.length) throw new Error('No news to analyze.');
 
@@ -377,8 +377,15 @@ const NewsAI = (() => {
     sysMsg += '- Flag any news that contradicts the current consensus or could trigger a re-rating\n';
     sysMsg += '- Distinguish between noise (short-term sentiment) and signal (fundamental value change)\n';
     sysMsg += '- Always respond in exact JSON format. No markdown, no commentary outside JSON.';
+    if (isETF) {
+      sysMsg += '\n\nETF-SPECIFIC CONTEXT: ' + symbol + ' is an ETF (Exchange-Traded Fund), NOT an individual stock.\n';
+      sysMsg += '- Focus on sector rotation, fund flows, holdings impact, and thematic trends rather than company-specific revenue/margin analysis\n';
+      sysMsg += '- News about top holdings affects the ETF. News about the sector/theme the ETF tracks is most relevant.\n';
+      sysMsg += '- Valuation impact should reference NAV premium/discount, expense ratio competitiveness, and fund flow trends rather than P/E or earnings.';
+    }
 
-    var prompt = 'Analyze these recent news articles for ' + symbol + ' (' + (companyName || symbol) + '). For each significant piece of news, explain exactly HOW and WHY it matters for the stock.\n\n' + kpiContext + '\n\nRecent News:\n' + newsList + '\n\nRespond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "3-4 sentence summary of the overall news narrative — what is the market learning about this company right now? What is the dominant theme?",\n  "longTermOutlook": "BULLISH" or "BEARISH" or "NEUTRAL",\n  "outlookReason": "2 sentences explaining the long-term valuation outlook based on the news flow and how it changes (or confirms) the investment thesis",\n  "valuationImpact": [\n    {\n      "factor": "short label (e.g. Revenue Growth, Margin Pressure, Market Share, Competitive Threat, Regulatory Risk)",\n      "direction": "POSITIVE" or "NEGATIVE" or "NEUTRAL",\n      "magnitude": "HIGH" or "MEDIUM" or "LOW",\n      "detail": "2 sentences: what happened and exactly how it transmits to the stock valuation (revenue, margins, multiple, sentiment)"\n    }\n  ],\n  "keyTriggers": [\n    {\n      "event": "specific event from the news",\n      "impact": "HIGH" or "MEDIUM" or "LOW",\n      "timeline": "IMMEDIATE" or "WEEKS" or "QUARTERS" or "STRUCTURAL",\n      "explanation": "2 sentences on why this could trigger a price move and what to watch for confirmation"\n    }\n  ],\n  "narrativeShift": "1-2 sentences: is the market narrative around this stock changing? If so, from what to what?"\n}\n\nKeep valuationImpact to 3-5 items. Keep keyTriggers to 2-4 items. Be specific — cite the actual news, not generic observations.';
+    var entityLabel = isETF ? 'ETF' : 'stock';
+    var prompt = 'Analyze these recent news articles for ' + symbol + ' (' + (companyName || symbol) + ').' + (isETF ? ' This is an ETF — focus on sector/thematic news, fund flows, and holdings impact.' : ' For each significant piece of news, explain exactly HOW and WHY it matters for the stock.') + '\n\n' + kpiContext + '\n\nRecent News:\n' + newsList + '\n\nRespond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "3-4 sentence summary of the overall news narrative — what is the market learning about this ' + entityLabel + ' right now? What is the dominant theme?",\n  "longTermOutlook": "BULLISH" or "BEARISH" or "NEUTRAL",\n  "outlookReason": "2 sentences explaining the long-term outlook based on the news flow and how it changes (or confirms) the investment thesis",\n  "valuationImpact": [\n    {\n      "factor": "short label (e.g. ' + (isETF ? 'Sector Rotation, Fund Flows, Holdings Performance, Thematic Trend, Regulatory Risk' : 'Revenue Growth, Margin Pressure, Market Share, Competitive Threat, Regulatory Risk') + ')",\n      "direction": "POSITIVE" or "NEGATIVE" or "NEUTRAL",\n      "magnitude": "HIGH" or "MEDIUM" or "LOW",\n      "detail": "2 sentences: what happened and exactly how it transmits to the ' + entityLabel + ' valuation"\n    }\n  ],\n  "keyTriggers": [\n    {\n      "event": "specific event from the news",\n      "impact": "HIGH" or "MEDIUM" or "LOW",\n      "timeline": "IMMEDIATE" or "WEEKS" or "QUARTERS" or "STRUCTURAL",\n      "explanation": "2 sentences on why this could trigger a price move and what to watch for confirmation"\n    }\n  ],\n  "narrativeShift": "1-2 sentences: is the market narrative around this ' + entityLabel + ' changing? If so, from what to what?"\n}\n\nKeep valuationImpact to 3-5 items. Keep keyTriggers to 2-4 items. Be specific — cite the actual news, not generic observations.';
 
     return groqFetch([{ role: 'system', content: sysMsg }, { role: 'user', content: prompt }], 1000, 0.3);
   }
@@ -386,7 +393,7 @@ const NewsAI = (() => {
   /**
    * Analyze analyst upgrades/downgrades and recommendation trends.
    */
-  async function analyzeAnalysts(symbol, companyName, recommendations, upgrades, kpis) {
+  async function analyzeAnalysts(symbol, companyName, recommendations, upgrades, kpis, isETF) {
     if (!hasKey()) throw new Error('Groq API key required for AI analysis.');
     if ((!recommendations || !recommendations.length) && (!upgrades || !upgrades.length)) {
       throw new Error('No analyst data to analyze.');
@@ -414,6 +421,9 @@ const NewsAI = (() => {
     var prompt = 'You are Rachel Torres — Head of Sell-Side Research Intelligence.\n';
     prompt += 'Background: 15 years tracking Wall Street analyst behavior at Citadel and Point72. Expert at reading between the lines of analyst actions.\n';
     prompt += 'You are known for: identifying when analyst consensus is about to shift, spotting conviction calls vs herd behavior, and understanding the politics behind upgrades/downgrades.\n\n';
+    if (isETF) {
+      prompt += 'IMPORTANT: ' + symbol + ' is an ETF (Exchange-Traded Fund). Analyst ratings here are fund-level ratings, not individual stock ratings. Focus on fund recommendation trends, Morningstar/Lipper ratings if referenced, and how analyst sentiment toward the ETF\'s sector/theme is shifting.\n\n';
+    }
     prompt += 'Analyze the following analyst activity for ' + symbol + ' (' + (companyName || symbol) + ') from the last 30 days.\n\n' + kpiContext + '\n\n' + recText + upgradeText;
     prompt += '\n\nYOUR ANALYTICAL FRAMEWORK:\n';
     prompt += '1. CONSENSUS MOMENTUM: Is the consensus shifting? Are upgrades accelerating or are we seeing early cracks?\n';
@@ -429,7 +439,7 @@ const NewsAI = (() => {
   /**
    * Analyze macro/economy news in the context of a specific stock.
    */
-  async function analyzeMacro(symbol, companyName, macroArticles, kpis, sector) {
+  async function analyzeMacro(symbol, companyName, macroArticles, kpis, sector, isETF) {
     if (!hasKey()) throw new Error('Groq API key required for AI analysis.');
     if (!macroArticles || !macroArticles.length) throw new Error('No macro news to analyze.');
 
@@ -463,9 +473,12 @@ const NewsAI = (() => {
     sysMsg += '- Be specific about HOW each macro factor transmits to the stock (e.g. "higher rates increase TSLA financing costs for buyers").\n';
     sysMsg += '- Always state the current macro regime (tightening/easing, expansion/contraction) and where we are in the cycle.\n';
     sysMsg += '- Always respond in the exact JSON format requested. No markdown, no commentary outside JSON.';
+    if (isETF) {
+      sysMsg += '\n\nETF-SPECIFIC CONTEXT: ' + symbol + ' is an ETF, not an individual stock. Macro factors affect the ETF through its basket of holdings and sector exposure. Explain how macro themes transmit to the ETF\'s underlying holdings and sector weighting, not a single company\'s business lines.';
+    }
 
     var prompt = 'Analyze these recent macro/economy/market news headlines. Focus on the key economic themes — Fed policy, wars/geopolitics, employment, government policy, and global economy.\n';
-    prompt += 'Then explain their impact specifically on ' + symbol + ' (' + (companyName || symbol) + ').\n\n';
+    prompt += 'Then explain their impact specifically on ' + symbol + ' (' + (companyName || symbol) + ').' + (isETF ? ' This is an ETF — explain how macro factors affect its sector/thematic exposure and underlying holdings.' : '') + '\n\n';
     prompt += sectorStr + '\n' + kpiContext + '\n\n';
     prompt += 'Recent Macro & Economy News:\n' + newsList + '\n\n';
     prompt += 'Respond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n';
@@ -1038,7 +1051,7 @@ const NewsAI = (() => {
   /**
    * Analyze company fundamentals — growth, margins, health, sentiment.
    */
-  async function analyzeFundamentals(symbol, companyName, financials, overview, sentimentData, profile) {
+  async function analyzeFundamentals(symbol, companyName, financials, overview, sentimentData, profile, isETF) {
     if (!hasKey()) throw new Error('Groq API key required.');
 
     var sections = '';
@@ -1112,15 +1125,34 @@ const NewsAI = (() => {
 
     var sysMsg = 'You are Elena Vasquez — Director of Fundamental Research & Valuation.\n';
     sysMsg += 'Background: 17 years at Fidelity Investments and T. Rowe Price managing $2B+ in assets. CFA, MBA (Wharton).\n';
-    sysMsg += 'You are known for:\n';
-    sysMsg += '- Deep-dive fundamental analysis: dissecting financial statements to find what the market is missing\n';
-    sysMsg += '- Margin trajectory analysis: predicting margin expansion/compression before it shows up in consensus estimates\n';
-    sysMsg += '- Capital allocation scoring: evaluating how well management deploys capital (buybacks, M&A, R&D, dividends)\n';
-    sysMsg += '- Competitive moat assessment: quantifying pricing power, switching costs, network effects, and scale advantages\n';
-    sysMsg += '- Balance sheet forensics: identifying hidden risks in debt structure, off-balance-sheet items, and working capital trends\n\n';
-    sysMsg += 'RULES: Every assessment must be backed by specific numbers from the data. Compare metrics to industry benchmarks where possible. Always respond in exact JSON format.';
+    if (isETF) {
+      sysMsg += 'You are known for:\n';
+      sysMsg += '- ETF due diligence: evaluating expense ratios, tracking error, liquidity, and fund structure\n';
+      sysMsg += '- Holdings quality analysis: assessing the quality and concentration of an ETF\'s underlying basket\n';
+      sysMsg += '- Fund flow analysis: tracking institutional and retail flows to gauge conviction\n';
+      sysMsg += '- Sector/thematic exposure assessment: understanding what macro factors drive the ETF\'s returns\n';
+      sysMsg += '- Competitive comparison: evaluating the ETF vs similar funds on cost, tracking, and liquidity\n\n';
+      sysMsg += 'RULES: This is an ETF, not a stock. Do NOT analyze it like a company. Focus on fund-level metrics: expense ratio, AUM, tracking error, holdings concentration, sector exposure, and fund flows. Always respond in exact JSON format.';
+    } else {
+      sysMsg += 'You are known for:\n';
+      sysMsg += '- Deep-dive fundamental analysis: dissecting financial statements to find what the market is missing\n';
+      sysMsg += '- Margin trajectory analysis: predicting margin expansion/compression before it shows up in consensus estimates\n';
+      sysMsg += '- Capital allocation scoring: evaluating how well management deploys capital (buybacks, M&A, R&D, dividends)\n';
+      sysMsg += '- Competitive moat assessment: quantifying pricing power, switching costs, network effects, and scale advantages\n';
+      sysMsg += '- Balance sheet forensics: identifying hidden risks in debt structure, off-balance-sheet items, and working capital trends\n\n';
+      sysMsg += 'RULES: Every assessment must be backed by specific numbers from the data. Compare metrics to industry benchmarks where possible. Always respond in exact JSON format.';
+    }
 
-    var prompt = 'Analyze the following company fundamentals for ' + symbol + ' (' + (companyName || symbol) + ') and provide a comprehensive assessment.\n\n' + sections + 'Respond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "4-5 sentence executive summary: company quality, growth trajectory, financial health, and whether the fundamentals support the current valuation. Compare to sector benchmarks where possible.",\n  "overallAssessment": "STRONG" or "ADEQUATE" or "WEAK",\n  "growthOutlook": "ACCELERATING" or "STABLE" or "DECELERATING" or "DECLINING",\n  "growthReason": "2 sentences on the growth trajectory — is it organic or acquired? Sustainable or one-time?",\n  "marginTrend": "EXPANDING" or "STABLE" or "COMPRESSING",\n  "marginReason": "2 sentences on margin trends — what is driving them and are they sustainable?",\n  "healthScore": "STRONG" or "ADEQUATE" or "WEAK",\n  "healthReason": "2 sentences on balance sheet health — debt levels, cash position, and ability to weather a downturn",\n  "capitalAllocation": "EXCELLENT" or "GOOD" or "POOR",\n  "capitalAllocationReason": "1-2 sentences on how management is deploying capital (buybacks, dividends, M&A, R&D)",\n  "sentimentLabel": "BULLISH" or "BEARISH" or "NEUTRAL" or "MIXED",\n  "sentimentReason": "1-2 sentences on market sentiment based on news flow and analyst positioning",\n  "strengths": [\n    {\n      "area": "short label",\n      "detail": "1-2 sentences with specific numbers"\n    }\n  ],\n  "weaknesses": [\n    {\n      "area": "short label",\n      "detail": "1-2 sentences with specific numbers"\n    }\n  ],\n  "keyInsights": [\n    {\n      "insight": "short label",\n      "detail": "1-2 sentences: actionable insight that most investors are missing"\n    }\n  ]\n}\n\nKeep strengths to 3-4 items. Keep weaknesses to 2-3 items. Keep keyInsights to 2-3 items. Be specific with numbers — cite actual metrics.';
+    var entityDesc = isETF ? 'ETF fundamentals' : 'company fundamentals';
+    var summaryGuide = isETF
+      ? '4-5 sentence executive summary: ETF quality, expense efficiency, holdings concentration, sector exposure, and whether the fund is well-positioned for current market conditions.'
+      : '4-5 sentence executive summary: company quality, growth trajectory, financial health, and whether the fundamentals support the current valuation. Compare to sector benchmarks where possible.';
+    var growthGuide = isETF ? '2 sentences on the ETF\'s performance trajectory — is the underlying sector/theme growing? Are fund flows accelerating?' : '2 sentences on the growth trajectory — is it organic or acquired? Sustainable or one-time?';
+    var marginGuide = isETF ? '2 sentences on expense ratio competitiveness and whether the fund is gaining or losing assets to competitors' : '2 sentences on margin trends — what is driving them and are they sustainable?';
+    var healthGuide = isETF ? '2 sentences on fund structure health — liquidity, tracking error, and ability to handle redemptions' : '2 sentences on balance sheet health — debt levels, cash position, and ability to weather a downturn';
+    var capitalGuide = isETF ? '1-2 sentences on the fund manager\'s rebalancing strategy and index tracking methodology' : '1-2 sentences on how management is deploying capital (buybacks, dividends, M&A, R&D)';
+
+    var prompt = 'Analyze the following ' + entityDesc + ' for ' + symbol + ' (' + (companyName || symbol) + ') and provide a comprehensive assessment.\n\n' + sections + 'Respond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "' + summaryGuide + '",\n  "overallAssessment": "STRONG" or "ADEQUATE" or "WEAK",\n  "growthOutlook": "ACCELERATING" or "STABLE" or "DECELERATING" or "DECLINING",\n  "growthReason": "' + growthGuide + '",\n  "marginTrend": "EXPANDING" or "STABLE" or "COMPRESSING",\n  "marginReason": "' + marginGuide + '",\n  "healthScore": "STRONG" or "ADEQUATE" or "WEAK",\n  "healthReason": "' + healthGuide + '",\n  "capitalAllocation": "EXCELLENT" or "GOOD" or "POOR",\n  "capitalAllocationReason": "' + capitalGuide + '",\n  "sentimentLabel": "BULLISH" or "BEARISH" or "NEUTRAL" or "MIXED",\n  "sentimentReason": "1-2 sentences on market sentiment based on news flow and analyst positioning",\n  "strengths": [\n    {\n      "area": "short label",\n      "detail": "1-2 sentences with specific numbers"\n    }\n  ],\n  "weaknesses": [\n    {\n      "area": "short label",\n      "detail": "1-2 sentences with specific numbers"\n    }\n  ],\n  "keyInsights": [\n    {\n      "insight": "short label",\n      "detail": "1-2 sentences: actionable insight that most investors are missing"\n    }\n  ]\n}\n\nKeep strengths to 3-4 items. Keep weaknesses to 2-3 items. Keep keyInsights to 2-3 items. Be specific with numbers — cite actual metrics.';
 
     return groqFetch([{ role: 'system', content: sysMsg }, { role: 'user', content: prompt }], 1100, 0.3, { model: MODEL_MID });
   }
@@ -1128,7 +1160,7 @@ const NewsAI = (() => {
   /**
    * Analyze technical indicators — RSI, MACD, SMA.
    */
-  async function analyzeTechnicals(symbol, companyName, rsi, macd, sma50, sma200, quote) {
+  async function analyzeTechnicals(symbol, companyName, rsi, macd, sma50, sma200, quote, isETF) {
     if (!hasKey()) throw new Error('Groq API key required.');
 
     var sections = '';
@@ -1174,8 +1206,11 @@ const NewsAI = (() => {
     sysMsg += '- Understanding market microstructure: how institutional order flow creates support/resistance\n';
     sysMsg += '- Risk-defined trade setups: always specifying entry, stop-loss, and target levels\n\n';
     sysMsg += 'RULES: Be precise with numbers. Every claim must be backed by the indicator data. Always respond in exact JSON format.';
+    if (isETF) {
+      sysMsg += '\n\nETF NOTE: ' + symbol + ' is an ETF. Technical analysis applies the same way to ETFs, but note that support/resistance levels may reflect sector-wide flows rather than company-specific catalysts. Volume patterns may indicate institutional rebalancing or fund flow shifts.';
+    }
 
-    var prompt = 'Analyze the following technical indicators for ' + symbol + ' (' + (companyName || symbol) + ') and provide a comprehensive technical assessment.\n\n' + sections + '\nRespond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "3-4 sentence technical analysis: current trend, momentum, and where the stock sits relative to key levels. Is this a trending or range-bound market?",\n  "signal": "BULLISH" or "BEARISH" or "NEUTRAL",\n  "signalStrength": "STRONG" or "MODERATE" or "WEAK",\n  "signalReason": "2 sentences explaining the overall technical signal and which indicators are driving it",\n  "indicators": [\n    {\n      "name": "indicator name (RSI, MACD, SMA50, SMA200, Golden/Death Cross)",\n      "value": "current value",\n      "signal": "BULLISH" or "BEARISH" or "NEUTRAL",\n      "interpretation": "1-2 sentences: what this indicator is saying and whether it confirms or diverges from the overall signal"\n    }\n  ],\n  "support": "nearest support level with reasoning",\n  "resistance": "nearest resistance level with reasoning",\n  "keyLevels": "1-2 sentences on critical price levels to watch — breakout/breakdown triggers",\n  "recommendation": "2 sentences: actionable recommendation for traders including entry zone, stop-loss level, and risk/reward assessment"\n}\n\nKeep indicators to 4-6 items. Be specific with numbers. Flag any divergences between indicators.';
+    var prompt = 'Analyze the following technical indicators for ' + symbol + ' (' + (companyName || symbol) + ')' + (isETF ? ' (ETF)' : '') + ' and provide a comprehensive technical assessment.\n\n' + sections + '\nRespond in this EXACT JSON format (no markdown, no code blocks, just raw JSON):\n{\n  "summary": "3-4 sentence technical analysis: current trend, momentum, and where the stock sits relative to key levels. Is this a trending or range-bound market?",\n  "signal": "BULLISH" or "BEARISH" or "NEUTRAL",\n  "signalStrength": "STRONG" or "MODERATE" or "WEAK",\n  "signalReason": "2 sentences explaining the overall technical signal and which indicators are driving it",\n  "indicators": [\n    {\n      "name": "indicator name (RSI, MACD, SMA50, SMA200, Golden/Death Cross)",\n      "value": "current value",\n      "signal": "BULLISH" or "BEARISH" or "NEUTRAL",\n      "interpretation": "1-2 sentences: what this indicator is saying and whether it confirms or diverges from the overall signal"\n    }\n  ],\n  "support": "nearest support level with reasoning",\n  "resistance": "nearest resistance level with reasoning",\n  "keyLevels": "1-2 sentences on critical price levels to watch — breakout/breakdown triggers",\n  "recommendation": "2 sentences: actionable recommendation for traders including entry zone, stop-loss level, and risk/reward assessment"\n}\n\nKeep indicators to 4-6 items. Be specific with numbers. Flag any divergences between indicators.';
 
     return groqFetch([{ role: 'system', content: sysMsg }, { role: 'user', content: prompt }], 900, 0.3, { model: MODEL_MID });
   }
@@ -1354,5 +1389,67 @@ const NewsAI = (() => {
     }
   }
 
-  return { getKey, setKey, hasKey, getKey2, setKey2, hasKey2, getGeminiKey, setGeminiKey, hasGeminiKey, testGemini, analyzeNews, analyzeAnalysts, analyzeMacro, summarizeTranscript, generateVerdict, generatePortfolioBrief, analyzeFundamentals, analyzeTechnicals, chatAdvisor };
+  /**
+   * Screener Agent — conversational AI that translates plain English into screening criteria.
+   * Returns JSON with structured criteria for the screening engine.
+   */
+  async function screenerAgent(messages) {
+    var sysMsg = 'You are a Stock Screening Assistant. Your job is to help users find stocks and ETFs by translating their plain English descriptions into structured screening criteria.\n\n';
+    sysMsg += 'CONVERSATION FLOW:\n';
+    sysMsg += '1. UNDERSTAND: Parse the user\'s request. If unclear, ask ONE clarifying question.\n';
+    sysMsg += '2. CONFIRM: Once you understand, output a JSON response with the criteria.\n';
+    sysMsg += '3. REFINE: If the user wants changes, update the criteria.\n\n';
+    sysMsg += 'AVAILABLE SCREENING FIELDS (Finnhub metric names):\n';
+    sysMsg += '- marketCap: market capitalization in millions (large>50000, mid=10000-50000, small=2000-10000, micro<2000)\n';
+    sysMsg += '- peTTM: trailing P/E ratio (low<15, moderate=15-25, high>25)\n';
+    sysMsg += '- epsTTM: earnings per share TTM\n';
+    sysMsg += '- dividendYield: annual dividend yield % (high>3, moderate=1-3, low<1)\n';
+    sysMsg += '- beta: volatility vs market (low<0.8, moderate=0.8-1.2, high>1.2)\n';
+    sysMsg += '- revenueGrowthTTMYoy: revenue growth % year-over-year\n';
+    sysMsg += '- epsGrowthTTMYoy: EPS growth % year-over-year\n';
+    sysMsg += '- grossMarginTTM: gross margin %\n';
+    sysMsg += '- operatingMarginTTM: operating margin %\n';
+    sysMsg += '- netProfitMarginTTM: net profit margin %\n';
+    sysMsg += '- roeTTM: return on equity %\n';
+    sysMsg += '- roaTTM: return on assets %\n';
+    sysMsg += '- currentRatioQuarterly: current ratio (healthy>1.5)\n';
+    sysMsg += '- totalDebtToEquityQuarterly: debt-to-equity ratio (low<0.5, moderate=0.5-1, high>1)\n';
+    sysMsg += '- 52WeekHigh: 52-week high price\n';
+    sysMsg += '- 52WeekLow: 52-week low price\n';
+    sysMsg += '- sector: finnhubIndustry from profile (Technology, Healthcare, Financial Services, Energy, etc.)\n';
+    sysMsg += '- type: "stock" or "etf" or "both"\n\n';
+    sysMsg += 'RESPONSE FORMAT — you MUST respond with ONLY valid JSON, no markdown, no commentary:\n';
+    sysMsg += '{\n';
+    sysMsg += '  "status": "clarify" or "criteria" or "refine",\n';
+    sysMsg += '  "message": "your message to the user explaining what you understood or asking for clarification",\n';
+    sysMsg += '  "criteria": {\n';
+    sysMsg += '    "type": "stock" or "etf" or "both",\n';
+    sysMsg += '    "sector": null or "Technology" or ["Technology","Healthcare"] etc,\n';
+    sysMsg += '    "filters": [\n';
+    sysMsg += '      {"field": "metric_name", "op": ">" or "<" or ">=" or "<=" or "between", "value": number_or_[min,max], "label": "human readable description"}\n';
+    sysMsg += '    ],\n';
+    sysMsg += '    "sortBy": "field_name",\n';
+    sysMsg += '    "sortDir": "desc" or "asc",\n';
+    sysMsg += '    "limit": 25\n';
+    sysMsg += '  }\n';
+    sysMsg += '}\n\n';
+    sysMsg += 'RULES:\n';
+    sysMsg += '- When status is "clarify", criteria can be null — you are asking the user a question\n';
+    sysMsg += '- When status is "criteria" or "refine", criteria MUST be populated\n';
+    sysMsg += '- Always explain your criteria in the "message" field in plain English\n';
+    sysMsg += '- Be smart about defaults: if user says "cheap stocks", use peTTM<15 AND type=stock\n';
+    sysMsg += '- If user says "growth", use revenueGrowthTTMYoy>15 or epsGrowthTTMYoy>15\n';
+    sysMsg += '- If user says "dividend", use dividendYield>2\n';
+    sysMsg += '- If user says "safe" or "stable", use beta<1, currentRatioQuarterly>1.5, totalDebtToEquityQuarterly<1\n';
+    sysMsg += '- If user says "undervalued", use peTTM<20 AND roeTTM>10\n';
+    sysMsg += '- Keep filters reasonable — 2-5 filters is ideal. Too many = no results.\n';
+    sysMsg += '- ALWAYS respond with valid JSON only. No markdown code blocks.';
+
+    return groqFetch(
+      [{ role: 'system', content: sysMsg }].concat(messages),
+      800, 0.3, { model: MODEL_MID }
+    );
+  }
+
+  return { getKey, setKey, hasKey, getKey2, setKey2, hasKey2, getGeminiKey, setGeminiKey, hasGeminiKey, testGemini, analyzeNews, analyzeAnalysts, analyzeMacro, summarizeTranscript, generateVerdict, generatePortfolioBrief, analyzeFundamentals, analyzeTechnicals, chatAdvisor, screenerAgent };
 })();

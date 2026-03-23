@@ -493,6 +493,39 @@
   </div>
   <!-- Chat Assistant -->
   <button id="chat-fab" class="chat-fab" aria-label="Open wealth advisor chat" title="Ask your Wealth Advisor">💬</button>
+  <!-- Screener Agent -->
+  <button id="screener-fab" class="screener-fab" aria-label="Open stock screener" title="AI Stock Screener">🔍</button>
+  <div id="screener-panel" class="screener-panel hidden">
+    <div class="screener-header">
+      <span class="screener-header-title">🔍 AI Stock Screener</span>
+      <div class="screener-header-actions">
+        <button id="screener-clear" class="chat-header-btn" title="Start over">🗑️</button>
+        <button id="screener-close" class="chat-header-btn" title="Close">✕</button>
+      </div>
+    </div>
+    <div id="screener-messages" class="chat-messages">
+      <div class="chat-msg assistant">
+        <div class="chat-msg-content">Hi, I'm your AI Stock Screener. Tell me what kind of stocks or ETFs you're looking for in plain English.
+
+For example:
+• "I want cheap tech stocks with strong growth"
+• "Show me high dividend ETFs with low volatility"
+• "Find undervalued healthcare companies"
+• "Large cap stocks with good margins and low debt"
+
+What are you looking for?</div>
+      </div>
+    </div>
+    <div id="screener-thinking" class="chat-thinking hidden">
+      <div class="chat-thinking-dots"><span></span><span></span><span></span></div>
+      <span class="chat-thinking-label">Thinking...</span>
+    </div>
+    <div id="screener-results" class="screener-results hidden"></div>
+    <form id="screener-form" class="chat-input-area">
+      <input type="text" id="screener-input" class="chat-input" placeholder="Describe what you're looking for..." autocomplete="off" />
+      <button type="submit" id="screener-send" class="chat-send-btn">➤</button>
+    </form>
+  </div>
   <div id="chat-panel" class="chat-panel hidden">
     <div class="chat-header">
       <span class="chat-header-title">🧠 Wealth Advisor</span>

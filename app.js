@@ -938,8 +938,8 @@
     if (c.macroAIResult) available.push('AI Macro'); else if (c.macroArticles && c.macroArticles.length) stale.push('AI Macro');
     if (!isETFData) {
       if (c.transcriptAIResult) available.push('AI Transcript');
-      if (c.fundamentalsResult) available.push('AI Fundamentals');
     }
+    if (c.fundamentalsResult) available.push('AI Fundamentals');
     if (c.technicalsResult) available.push('AI Technicals');
 
     var freshness = ageMin < 0 ? 'unknown' : ageMin < 1 ? 'just now' : ageMin + ' min ago';
@@ -962,7 +962,7 @@
     _verdictInProgress[symbol] = 'Preparing...';
     if (selectedSymbol === symbol) { btn.disabled = true; btn.textContent = 'Preparing\u2026'; }
     var step = 0;
-    var totalSteps = isETF ? 7 : 14;
+    var totalSteps = isETF ? 8 : 14;
     function progress(msg) {
       step++;
       _verdictInProgress[symbol] = msg + ' (Step ' + step + '/' + totalSteps + ')';
@@ -1060,8 +1060,8 @@
       c = cache[symbol];
     }
 
-    // Fundamentals AI (stocks only)
-    if (!isETF && !c.fundamentalsResult && NewsAI.hasKey()) {
+    // Fundamentals AI
+    if (!c.fundamentalsResult && NewsAI.hasKey()) {
       progress('\uD83E\uDD16 AI analyzing fundamentals...');
       try { await loadFundamentalsData(symbol); } catch(e) { console.warn('Fundamentals AI:', e.message); }
       c = cache[symbol];
@@ -1302,8 +1302,8 @@
     var contentEl = document.getElementById('detail-technicals-content');
     var btn = document.getElementById('detail-technicals-btn');
     if (!tile || !contentEl || !btn) return;
-    if (s && s.type === 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
+    tile.removeAttribute('data-render-hidden');
     btn.onclick = function() { loadTechnicalsData(symbol); };
 
     if (c.technicalsResult) {
@@ -1341,9 +1341,11 @@
 
       if (NewsAI.hasKey()) {
         if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 AI analyzing technicals...</div>';
+        var stockInfo = trackedStocks.find(function(t) { return t.symbol === symbol; }) || {};
+        var isETF = stockInfo.type === 'ETF';
         c.technicalsResult = await NewsAI.analyzeTechnicals(
           symbol, c.profile ? c.profile.name : symbol,
-          c.rsiData, c.macdData, c.sma50Data, c.sma200Data, c.quote
+          c.rsiData, c.macdData, c.sma50Data, c.sma200Data, c.quote, isETF
         );
       }
       if (selectedSymbol === symbol) renderTechnicalsHTML(contentEl, c);
@@ -2052,8 +2054,9 @@
     var contentEl = document.getElementById('detail-fundamentals-content');
     var btn = document.getElementById('detail-fundamentals-btn');
     var tile = document.getElementById('tile-fundamentals');
-    if (s && s.type === 'ETF') { tile.style.display = 'none'; tile.setAttribute('data-render-hidden', 'true'); return; }
     tile.style.display = '';
+    tile.removeAttribute('data-render-hidden');
+    var isETF = s && s.type === 'ETF';
     btn.onclick = function() { loadFundamentalsData(symbol); };
 
     if (c.fundamentalsResult) {
@@ -2061,13 +2064,14 @@
       btn.disabled = false; btn.textContent = 'Reload';
       return;
     }
-    // Show raw metrics if we have financials already
-    if (c.financials && (c.financials.grossMargin != null || c.financials.roeTTM != null)) {
+    // Show raw metrics if we have financials already (stocks only)
+    if (!isETF && c.financials && (c.financials.grossMargin != null || c.financials.roeTTM != null)) {
       renderFundamentalsRaw(contentEl, c);
       btn.disabled = false; btn.textContent = 'Load & Analyze';
     } else {
       btn.disabled = false; btn.textContent = 'Load & Analyze';
-      contentEl.innerHTML = '<div class="tile-loading">Click Load & Analyze to view growth, margins, financial health, and sentiment.' + (AlphaAPI.hasKey() ? '' : ' Add an Alpha Vantage key for employee count & sentiment data.') + '</div>';
+      var desc = isETF ? 'Click Load & Analyze to view ETF fundamentals, expense analysis, and sentiment.' : 'Click Load & Analyze to view growth, margins, financial health, and sentiment.';
+      contentEl.innerHTML = '<div class="tile-loading">' + desc + (AlphaAPI.hasKey() ? '' : ' Add an Alpha Vantage key for additional data.') + '</div>';
     }
   }
 
@@ -2128,13 +2132,16 @@
       // Run AI analysis if Groq key available
       if (NewsAI.hasKey()) {
         if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 AI analyzing fundamentals...</div>';
+        var stockInfo = trackedStocks.find(function(t) { return t.symbol === symbol; }) || {};
+        var isETF = stockInfo.type === 'ETF';
         c.fundamentalsResult = await NewsAI.analyzeFundamentals(
           symbol,
           c.profile ? c.profile.name : symbol,
           c.financials || null,
           c.avOverview || null,
           c.avSentiment || null,
-          c.profile || null
+          c.profile || null,
+          isETF
         );
       }
 
@@ -2317,7 +2324,9 @@
     }
     try {
       var c = cache[symbol];
-      c.aiResult = await NewsAI.analyzeNews(symbol, c.profile ? c.profile.name : symbol, c.articles, c.financials || null);
+      var stockInfo = trackedStocks.find(function(t) { return t.symbol === symbol; }) || {};
+      var isETF = stockInfo.type === 'ETF';
+      c.aiResult = await NewsAI.analyzeNews(symbol, c.profile ? c.profile.name : symbol, c.articles, c.financials || null, isETF);
       if (symbol === selectedSymbol) renderAIHTML(contentEl, c.aiResult);
     } catch (err) { if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="error-msg">' + err.message + '</div>'; }
     finally { if (symbol === selectedSymbol) { btn.textContent = 'Re-analyze'; btn.disabled = false; } }
@@ -2437,12 +2446,15 @@
       contentEl.innerHTML = '<div class="tile-loading">\uD83E\uDD16 Analyzing analyst ratings...</div>';
     }
     try {
+      var stockInfo = trackedStocks.find(function(t) { return t.symbol === symbol; }) || {};
+      var isETF = stockInfo.type === 'ETF';
       c.analystAIResult = await NewsAI.analyzeAnalysts(
         symbol,
         c.profile ? c.profile.name : symbol,
         c.recommendations || [],
         c.upgrades || [],
-        c.financials || null
+        c.financials || null,
+        isETF
       );
       if (symbol === selectedSymbol) renderAnalystHTML(contentEl, c.analystAIResult, c.upgrades || [], symbol);
     } catch (err) { if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="error-msg">' + err.message + '</div>'; }
@@ -2554,12 +2566,15 @@
     }
     try {
       var sector = (c.profile && c.profile.sector) || '';
+      var stockInfo = trackedStocks.find(function(t) { return t.symbol === symbol; }) || {};
+      var isETF = stockInfo.type === 'ETF';
       c.macroAIResult = await NewsAI.analyzeMacro(
         symbol,
         c.profile ? c.profile.name : symbol,
         c.macroArticles,
         c.financials || null,
-        sector
+        sector,
+        isETF
       );
       if (symbol === selectedSymbol) renderMacroHTML(contentEl, c.macroAIResult, c.macroArticles);
     } catch (err) { if (symbol === selectedSymbol) contentEl.innerHTML = '<div class="error-msg">' + err.message + '</div>'; }
@@ -3795,15 +3810,13 @@
         await loadTechnicalsData(symbol);
       } catch (e) { console.warn('Auto technicals error:', e.message); }
     }
-    // Fundamentals & Sentiment AI (stocks only)
-    if (!isETF) {
+    // Fundamentals & Sentiment AI
     if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
     c = cache[symbol];
     if (c && !c.fundamentalsResult) {
       try {
         await loadFundamentalsData(symbol);
       } catch (e) { console.warn('Auto fundamentals error:', e.message); }
-    }
     }
 
     // Revenue & Income (AV call, stocks only)
@@ -5105,6 +5118,525 @@
       isBusy = false;
       chatSend.disabled = false;
       chatInput.focus();
+    });
+  })();
+
+  // ===== AI Stock Screener Agent =====
+  (function initScreener() {
+    var fab = document.getElementById('screener-fab');
+    var panel = document.getElementById('screener-panel');
+    var closeBtn = document.getElementById('screener-close');
+    var clearBtn = document.getElementById('screener-clear');
+    var form = document.getElementById('screener-form');
+    var inputEl = document.getElementById('screener-input');
+    var messagesEl = document.getElementById('screener-messages');
+    var thinkingEl = document.getElementById('screener-thinking');
+    var resultsEl = document.getElementById('screener-results');
+    var sendBtn = document.getElementById('screener-send');
+    if (!fab || !panel) return;
+
+    var conversation = [];
+    var isBusy = false;
+    var lastCriteria = null;
+    var screenResults = [];
+    var currentSort = { field: null, dir: 'desc' };
+
+    // S&P 500 + popular ETFs universe — cached to avoid burning API calls
+    var UNIVERSE_KEY = 'screener_universe';
+    var UNIVERSE_TTL = 7 * 24 * 3600 * 1000; // 7 days
+
+    fab.addEventListener('click', function() {
+      var isOpen = !panel.classList.contains('hidden');
+      panel.classList.toggle('hidden', isOpen);
+      fab.classList.toggle('active', !isOpen);
+      if (!isOpen) inputEl.focus();
+    });
+    closeBtn.addEventListener('click', function() {
+      panel.classList.add('hidden');
+      fab.classList.remove('active');
+    });
+    clearBtn.addEventListener('click', function() {
+      conversation = [];
+      lastCriteria = null;
+      screenResults = [];
+      resultsEl.classList.add('hidden');
+      resultsEl.innerHTML = '';
+      messagesEl.innerHTML = '<div class="chat-msg assistant"><div class="chat-msg-content">Conversation cleared. Tell me what kind of stocks or ETFs you\'re looking for.</div></div>';
+    });
+
+    function scrollBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
+
+    function appendMsg(role, html) {
+      var div = document.createElement('div');
+      div.className = 'chat-msg ' + role;
+      var content = document.createElement('div');
+      content.className = 'chat-msg-content';
+      content.innerHTML = html;
+      div.appendChild(content);
+      messagesEl.appendChild(div);
+      scrollBottom();
+      return content;
+    }
+
+    function fmtText(text) {
+      return text
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\n/g, '<br>');
+    }
+
+    // Build criteria display HTML
+    function buildCriteriaHTML(criteria) {
+      var h = '<div class="screener-criteria-box">';
+      h += '<div class="criteria-label">Screening Criteria</div>';
+      if (criteria.type && criteria.type !== 'both') {
+        h += '<div class="screener-criteria-item">' + (criteria.type === 'etf' ? 'ETFs only' : 'Stocks only') + '</div>';
+      }
+      if (criteria.sector) {
+        var sectors = Array.isArray(criteria.sector) ? criteria.sector.join(', ') : criteria.sector;
+        h += '<div class="screener-criteria-item">Sector: ' + sectors + '</div>';
+      }
+      if (criteria.filters && criteria.filters.length) {
+        criteria.filters.forEach(function(f) {
+          h += '<div class="screener-criteria-item">' + (f.label || (f.field + ' ' + f.op + ' ' + f.value)) + '</div>';
+        });
+      }
+      if (criteria.sortBy) {
+        h += '<div class="screener-criteria-item">Sort by: ' + criteria.sortBy + ' (' + (criteria.sortDir || 'desc') + ')</div>';
+      }
+      h += '</div>';
+      return h;
+    }
+
+    // Get or build the stock universe
+    async function getUniverse() {
+      // Check cache
+      var cached = null;
+      try {
+        var raw = localStorage.getItem(UNIVERSE_KEY);
+        if (raw) {
+          cached = JSON.parse(raw);
+          if (cached.ts && Date.now() - cached.ts < UNIVERSE_TTL && cached.symbols && cached.symbols.length > 100) {
+            return cached.symbols;
+          }
+        }
+      } catch(e) {}
+
+      // Fetch US stock symbols from Finnhub
+      if (!StockAPI.hasKey()) throw new Error('Finnhub API key required for screening.');
+      appendMsg('assistant', '📡 Building stock universe from Finnhub (one-time, cached for 7 days)...');
+
+      var symbols = [];
+      try {
+        var data = await StockAPI.fhGet('/stock/symbol?exchange=US');
+        if (Array.isArray(data)) {
+          symbols = data
+            .filter(function(s) {
+              return s.symbol && s.type && (s.type === 'Common Stock' || s.type === 'ETP')
+                && s.symbol.indexOf('.') === -1
+                && s.symbol.length <= 5;
+            })
+            .map(function(s) {
+              return { symbol: s.symbol, name: s.description || '', type: s.type === 'Common Stock' ? 'stock' : 'etf' };
+            });
+        }
+      } catch(e) {
+        throw new Error('Failed to fetch stock universe: ' + e.message);
+      }
+
+      if (symbols.length < 50) throw new Error('Universe too small (' + symbols.length + '). Check Finnhub key.');
+
+      // Cache it
+      try {
+        localStorage.setItem(UNIVERSE_KEY, JSON.stringify({ ts: Date.now(), symbols: symbols }));
+      } catch(e) {}
+
+      return symbols;
+    }
+
+    // Expose fhGet for the screener (it's inside StockAPI closure)
+    // We need to add it to StockAPI — let's use the existing searchTicker pattern instead
+    // Actually, fhGet is not exposed. We'll use a workaround via the existing API methods.
+
+    // Screen stocks against criteria
+    async function runScreen(criteria) {
+      resultsEl.classList.remove('hidden');
+      resultsEl.innerHTML = '<div class="screener-progress">🔍 Preparing to screen...<div class="screener-progress-bar"><div class="screener-progress-fill" id="screener-progress-fill" style="width:0%"></div></div></div>';
+
+      var universe;
+      try {
+        universe = await getUniverse();
+      } catch(e) {
+        resultsEl.innerHTML = '<div class="screener-progress" style="color:var(--red);">Error: ' + e.message + '</div>';
+        return;
+      }
+
+      // Filter by type
+      var candidates = universe;
+      if (criteria.type === 'stock') candidates = candidates.filter(function(s) { return s.type === 'stock'; });
+      else if (criteria.type === 'etf') candidates = candidates.filter(function(s) { return s.type === 'etf'; });
+
+      // Limit universe to a manageable size for API calls
+      // Shuffle and take a sample to get diverse results
+      var maxToScreen = Math.min(candidates.length, 200);
+      var shuffled = candidates.slice();
+      for (var i = shuffled.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1));
+        var tmp = shuffled[i]; shuffled[i] = shuffled[j]; shuffled[j] = tmp;
+      }
+      // But prioritize well-known stocks — put tracked stocks and common ones first
+      var prioritized = [];
+      var rest = [];
+      var knownSymbols = {};
+      trackedStocks.forEach(function(s) { knownSymbols[s.symbol] = true; });
+      shuffled.forEach(function(s) {
+        if (knownSymbols[s.symbol]) prioritized.push(s);
+        else rest.push(s);
+      });
+      var toScreen = prioritized.concat(rest).slice(0, maxToScreen);
+
+      var progressFill = document.getElementById('screener-progress-fill');
+      var progressEl = resultsEl.querySelector('.screener-progress');
+      var matches = [];
+      var screened = 0;
+      var errors = 0;
+      var batchSize = 3; // 3 concurrent to stay under 60/min
+      var delayBetweenBatches = 3200; // ~18 calls/min safe
+
+      for (var bi = 0; bi < toScreen.length; bi += batchSize) {
+        var batch = toScreen.slice(bi, bi + batchSize);
+        var promises = batch.map(function(stock) {
+          return screenOneStock(stock, criteria).then(function(result) {
+            screened++;
+            if (result) matches.push(result);
+          }).catch(function() {
+            screened++;
+            errors++;
+          });
+        });
+        await Promise.all(promises);
+
+        var pct = Math.round(screened / toScreen.length * 100);
+        if (progressFill) progressFill.style.width = pct + '%';
+        if (progressEl) progressEl.firstChild.textContent = '🔍 Screened ' + screened + '/' + toScreen.length + ' (' + matches.length + ' matches)...';
+
+        // Check if we have enough matches
+        var limit = (criteria.limit || 25);
+        if (matches.length >= limit * 2) break; // Got plenty, stop early
+
+        // Rate limit delay between batches
+        if (bi + batchSize < toScreen.length) {
+          await new Promise(function(r) { setTimeout(r, delayBetweenBatches); });
+        }
+      }
+
+      // Sort results
+      var sortField = criteria.sortBy || 'marketCap';
+      var sortDir = criteria.sortDir || 'desc';
+      matches.sort(function(a, b) {
+        var va = a.metrics[sortField] != null ? a.metrics[sortField] : (sortDir === 'desc' ? -Infinity : Infinity);
+        var vb = b.metrics[sortField] != null ? b.metrics[sortField] : (sortDir === 'desc' ? -Infinity : Infinity);
+        return sortDir === 'desc' ? vb - va : va - vb;
+      });
+
+      screenResults = matches.slice(0, criteria.limit || 25);
+      currentSort = { field: sortField, dir: sortDir };
+      renderResults();
+
+      var summary = '✅ Found ' + matches.length + ' matches out of ' + screened + ' screened.';
+      if (errors > 0) summary += ' (' + errors + ' had data errors)';
+      if (matches.length > (criteria.limit || 25)) summary += ' Showing top ' + (criteria.limit || 25) + '.';
+      appendMsg('assistant', summary + '\n\nYou can click column headers to re-sort, or click **+ Add** to add any stock to your watchlist.\n\nWant to refine the criteria? Just tell me what to change.');
+    }
+
+    // Screen a single stock against criteria
+    async function screenOneStock(stock, criteria) {
+      try {
+        // Get metrics from Finnhub
+        var data = await StockAPI.getBasicFinancials(stock.symbol);
+        if (!data) return null;
+
+        var metrics = {
+          symbol: stock.symbol,
+          name: stock.name,
+          type: stock.type,
+          peTTM: data.peTTM,
+          epsTTM: data.epsTTM,
+          dividendYield: parseFloat(data.dividendYield) || null,
+          beta: parseFloat(data.beta) || null,
+          revenueGrowthTTMYoy: data.revenueGrowth1Y,
+          epsGrowthTTMYoy: data.epsGrowth,
+          grossMarginTTM: data.grossMargin,
+          operatingMarginTTM: data.operatingMargin,
+          netProfitMarginTTM: data.netMargin,
+          roeTTM: data.roeTTM,
+          roaTTM: data.roaTTM,
+          currentRatioQuarterly: data.currentRatio,
+          totalDebtToEquityQuarterly: data.debtEquity,
+          marketCap: null,
+          price: null,
+          change: null,
+          changePct: null,
+        };
+
+        // Parse 52W values
+        if (data.week52High && data.week52High !== 'N/A') metrics['52WeekHigh'] = parseFloat(data.week52High.replace('$',''));
+        if (data.week52Low && data.week52Low !== 'N/A') metrics['52WeekLow'] = parseFloat(data.week52Low.replace('$',''));
+
+        // Check sector filter — need profile for this
+        if (criteria.sector) {
+          var profile = await StockAPI.getProfile(stock.symbol);
+          if (profile) {
+            metrics.sector = profile.sector;
+            metrics.marketCap = profile.marketCap ? profile.marketCap / 1e6 : null; // in millions
+            metrics.name = profile.name || stock.name;
+          }
+          var sectorList = Array.isArray(criteria.sector) ? criteria.sector : [criteria.sector];
+          var sectorMatch = false;
+          if (metrics.sector) {
+            var sLower = metrics.sector.toLowerCase();
+            sectorList.forEach(function(s) { if (sLower.indexOf(s.toLowerCase()) !== -1) sectorMatch = true; });
+          }
+          if (!sectorMatch) return null;
+        }
+
+        // If we need marketCap but don't have it yet
+        if (!metrics.marketCap) {
+          var needsMcap = criteria.filters && criteria.filters.some(function(f) { return f.field === 'marketCap'; });
+          var sortNeedsMcap = criteria.sortBy === 'marketCap';
+          if (needsMcap || sortNeedsMcap) {
+            if (!criteria.sector) { // didn't fetch profile yet
+              var prof = await StockAPI.getProfile(stock.symbol);
+              if (prof) {
+                metrics.marketCap = prof.marketCap ? prof.marketCap / 1e6 : null;
+                metrics.name = prof.name || stock.name;
+              }
+            }
+          }
+        }
+
+        // Apply filters
+        if (criteria.filters && criteria.filters.length) {
+          for (var i = 0; i < criteria.filters.length; i++) {
+            var f = criteria.filters[i];
+            var val = metrics[f.field];
+            if (val == null) return null; // missing data = skip
+
+            if (f.op === '>' && !(val > f.value)) return null;
+            if (f.op === '<' && !(val < f.value)) return null;
+            if (f.op === '>=' && !(val >= f.value)) return null;
+            if (f.op === '<=' && !(val <= f.value)) return null;
+            if (f.op === 'between') {
+              if (!Array.isArray(f.value) || f.value.length !== 2) return null;
+              if (!(val >= f.value[0] && val <= f.value[1])) return null;
+            }
+          }
+        }
+
+        // Get quote for price data
+        try {
+          var quote = await StockAPI.getQuote(stock.symbol);
+          if (quote) {
+            metrics.price = quote.price;
+            metrics.change = quote.change;
+            metrics.changePct = quote.changePct;
+          }
+        } catch(e) {}
+
+        return { symbol: stock.symbol, name: metrics.name || stock.name, type: stock.type, metrics: metrics };
+      } catch(e) {
+        return null;
+      }
+    }
+
+    // Render results table
+    function renderResults() {
+      if (!screenResults.length) {
+        resultsEl.innerHTML = '<div class="screener-progress">No matches found. Try broadening your criteria.</div>';
+        return;
+      }
+
+      var h = '<div class="screener-results-header"><span class="screener-results-count">' + screenResults.length + ' results</span></div>';
+      h += '<table class="screener-table"><thead><tr>';
+
+      var columns = [
+        { key: 'symbol', label: 'Symbol', cls: 'sym-cell' },
+        { key: 'name', label: 'Name', cls: 'name-cell' },
+        { key: 'price', label: 'Price', cls: 'num-cell', fmt: 'price' },
+        { key: 'changePct', label: 'Chg%', cls: 'num-cell', fmt: 'pct' },
+        { key: 'peTTM', label: 'P/E', cls: 'num-cell', fmt: 'dec1' },
+        { key: 'dividendYield', label: 'Div%', cls: 'num-cell', fmt: 'dec2' },
+        { key: 'roeTTM', label: 'ROE%', cls: 'num-cell', fmt: 'dec1' },
+        { key: 'revenueGrowthTTMYoy', label: 'RevGr%', cls: 'num-cell', fmt: 'dec1' },
+        { key: 'beta', label: 'Beta', cls: 'num-cell', fmt: 'dec2' },
+        { key: '_add', label: '', cls: '' },
+      ];
+
+      columns.forEach(function(col) {
+        var arrow = '';
+        if (col.key === currentSort.field) arrow = '<span class="sort-arrow">' + (currentSort.dir === 'desc' ? '▼' : '▲') + '</span>';
+        h += '<th data-sort="' + col.key + '">' + col.label + arrow + '</th>';
+      });
+      h += '</tr></thead><tbody>';
+
+      screenResults.forEach(function(r) {
+        var m = r.metrics;
+        var isTracked = trackedStocks.some(function(t) { return t.symbol === r.symbol; });
+        h += '<tr>';
+        columns.forEach(function(col) {
+          if (col.key === '_add') {
+            if (isTracked) {
+              h += '<td><span class="screener-add-btn added">✓ Tracked</span></td>';
+            } else {
+              h += '<td><button class="screener-add-btn" data-sym="' + r.symbol + '" data-name="' + (r.name || '').replace(/"/g, '&quot;') + '" data-type="' + r.type + '">+ Add</button></td>';
+            }
+            return;
+          }
+          var val = col.key === 'name' ? r.name : (col.key === 'symbol' ? r.symbol : m[col.key]);
+          var display = '';
+          var cls = col.cls || '';
+
+          if (val == null || val === 'N/A') { display = '—'; }
+          else if (col.fmt === 'price') { display = '$' + Number(val).toFixed(2); }
+          else if (col.fmt === 'pct') {
+            display = (val >= 0 ? '+' : '') + Number(val).toFixed(2) + '%';
+            cls += val >= 0 ? ' pos' : ' neg';
+          }
+          else if (col.fmt === 'dec1') { display = Number(val).toFixed(1); }
+          else if (col.fmt === 'dec2') { display = Number(val).toFixed(2); }
+          else { display = String(val); }
+
+          h += '<td class="' + cls + '">' + display + '</td>';
+        });
+        h += '</tr>';
+      });
+
+      h += '</tbody></table>';
+      resultsEl.innerHTML = h;
+
+      // Wire up sort headers
+      resultsEl.querySelectorAll('th[data-sort]').forEach(function(th) {
+        th.addEventListener('click', function() {
+          var field = th.getAttribute('data-sort');
+          if (field === '_add') return;
+          if (currentSort.field === field) {
+            currentSort.dir = currentSort.dir === 'desc' ? 'asc' : 'desc';
+          } else {
+            currentSort.field = field;
+            currentSort.dir = (field === 'symbol' || field === 'name') ? 'asc' : 'desc';
+          }
+          screenResults.sort(function(a, b) {
+            var va = field === 'name' ? a.name : (field === 'symbol' ? a.symbol : a.metrics[field]);
+            var vb = field === 'name' ? b.name : (field === 'symbol' ? b.symbol : b.metrics[field]);
+            if (va == null) va = currentSort.dir === 'desc' ? -Infinity : Infinity;
+            if (vb == null) vb = currentSort.dir === 'desc' ? -Infinity : Infinity;
+            if (typeof va === 'string') return currentSort.dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+            return currentSort.dir === 'desc' ? vb - va : va - vb;
+          });
+          renderResults();
+        });
+      });
+
+      // Wire up add buttons
+      resultsEl.querySelectorAll('.screener-add-btn:not(.added)').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var sym = btn.getAttribute('data-sym');
+          var name = btn.getAttribute('data-name');
+          var type = btn.getAttribute('data-type') === 'etf' ? 'ETF' : 'Equity';
+          addStock(sym, name, type);
+          btn.classList.add('added');
+          btn.textContent = '✓ Added';
+        });
+      });
+    }
+
+    // Main form submit
+    form.addEventListener('submit', async function(e) {
+      e.preventDefault();
+      var text = inputEl.value.trim();
+      if (!text || isBusy) return;
+      if (!NewsAI.hasKey()) {
+        appendMsg('assistant', 'Please add your Groq API key in Settings to use the screener.');
+        return;
+      }
+      if (!StockAPI.hasKey()) {
+        appendMsg('assistant', 'Please add your Finnhub API key in Settings to search stocks.');
+        return;
+      }
+
+      isBusy = true;
+      sendBtn.disabled = true;
+      inputEl.value = '';
+      appendMsg('user', fmtText(text));
+
+      conversation.push({ role: 'user', content: text });
+
+      thinkingEl.classList.remove('hidden');
+      scrollBottom();
+
+      try {
+        var response = await NewsAI.screenerAgent(conversation);
+
+        thinkingEl.classList.add('hidden');
+
+        if (!response || !response.status) {
+          appendMsg('assistant', 'I had trouble understanding that. Could you rephrase what kind of stocks you\'re looking for?');
+          isBusy = false;
+          sendBtn.disabled = false;
+          return;
+        }
+
+        // Add assistant response to conversation
+        conversation.push({ role: 'assistant', content: JSON.stringify(response) });
+
+        if (response.status === 'clarify') {
+          appendMsg('assistant', fmtText(response.message || 'Could you tell me more about what you\'re looking for?'));
+        } else if (response.status === 'criteria' || response.status === 'refine') {
+          lastCriteria = response.criteria;
+
+          // Show the message
+          var msgHTML = fmtText(response.message || 'Here are the criteria I\'ll use:');
+          msgHTML += buildCriteriaHTML(response.criteria);
+
+          // Add confirm/edit buttons
+          msgHTML += '<div class="screener-confirm-btns">';
+          msgHTML += '<button class="screener-confirm-btn yes" id="screener-confirm-yes">🔍 Search Now</button>';
+          msgHTML += '<button class="screener-confirm-btn edit" id="screener-confirm-edit">✏️ Adjust</button>';
+          msgHTML += '</div>';
+
+          var msgEl = appendMsg('assistant', msgHTML);
+
+          // Wire up buttons
+          var yesBtn = msgEl.querySelector('#screener-confirm-yes');
+          var editBtn = msgEl.querySelector('#screener-confirm-edit');
+
+          yesBtn.addEventListener('click', async function() {
+            yesBtn.disabled = true;
+            editBtn.disabled = true;
+            yesBtn.textContent = 'Searching...';
+            try {
+              await runScreen(lastCriteria);
+            } catch(err) {
+              appendMsg('assistant', 'Error during screening: ' + err.message);
+            }
+          });
+
+          editBtn.addEventListener('click', function() {
+            yesBtn.disabled = true;
+            editBtn.disabled = true;
+            appendMsg('assistant', 'Sure, what would you like to change? You can say things like:\n• "Lower the P/E to under 12"\n• "Add a minimum dividend yield of 3%"\n• "Include healthcare too"\n• "Remove the beta filter"');
+            inputEl.focus();
+          });
+        }
+      } catch(err) {
+        thinkingEl.classList.add('hidden');
+        appendMsg('assistant', 'Error: ' + err.message + '. Try again.');
+      }
+
+      isBusy = false;
+      sendBtn.disabled = false;
+      inputEl.focus();
     });
   })();
 
