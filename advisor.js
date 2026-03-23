@@ -55,16 +55,16 @@
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
-    function appendMsg(role, text, persona) {
+    function appendMsg(role, html, persona) {
       var div = document.createElement('div');
       div.className = 'chat-msg ' + role;
       var content = document.createElement('div');
       content.className = 'chat-msg-content';
       if (role === 'assistant' && persona) {
         var badge = persona === 'screener' ? '🔍 ' : '🧠 ';
-        content.innerHTML = '<span style="opacity:0.6;font-size:0.65rem;">' + badge + (persona === 'screener' ? 'Marcus' : 'Alexander') + '</span><br>' + (typeof text === 'string' ? formatChatText(text) : text);
+        content.innerHTML = '<span style="opacity:0.6;font-size:0.65rem;">' + badge + (persona === 'screener' ? 'Marcus' : 'Alexander') + '</span><br>' + html;
       } else {
-        content.innerHTML = typeof text === 'string' ? formatChatText(text) : text;
+        content.innerHTML = html;
       }
       div.appendChild(content);
       messagesEl.appendChild(div);
@@ -347,14 +347,16 @@
       var text = inputEl.value.trim();
       if (!text || isBusy) return;
       if (!NewsAI.hasKey()) {
-        appendMsg('assistant', 'Please add your Groq API key in Settings first.');
+        appendMsg('assistant', formatChatText('Please add your Groq API key in Settings first.'));
         return;
       }
 
+      // Immediately lock to prevent double-submit
       isBusy = true;
       sendBtn.disabled = true;
       inputEl.value = '';
-      appendMsg('user', text);
+      inputEl.disabled = true;
+      appendMsg('user', formatChatText(text));
 
       var intent = classifyIntent(text);
       activeMode = intent;
@@ -369,6 +371,7 @@
 
       isBusy = false;
       sendBtn.disabled = false;
+      inputEl.disabled = false;
       inputEl.focus();
     });
 
@@ -385,30 +388,47 @@
       }
 
       thinkingEl.classList.remove('hidden');
+      var thinkLabel = thinkingEl.querySelector('.chat-thinking-label');
+      if (thinkLabel) thinkLabel.textContent = 'Thinking...';
       scrollToBottom();
+
+      var thinkTimer = setTimeout(function() {
+        if (thinkLabel) thinkLabel.textContent = 'Still working — analyzing portfolio data...';
+      }, 12000);
+      var thinkTimer2 = setTimeout(function() {
+        if (thinkLabel) thinkLabel.textContent = 'Taking longer than usual — hang tight...';
+      }, 30000);
 
       try {
         var response = await NewsAI.chatAdvisor(apiMessages, { timeoutMs: 60000, maxTokens: 2048 });
+        clearTimeout(thinkTimer);
+        clearTimeout(thinkTimer2);
         conversation.push({ role: 'assistant', content: response });
         thinkingEl.classList.add('hidden');
-        appendMsg('assistant', response, 'advisor');
+        if (thinkLabel) thinkLabel.textContent = 'Thinking...';
+        appendMsg('assistant', formatChatText(response), 'advisor');
       } catch (err) {
+        clearTimeout(thinkTimer);
+        clearTimeout(thinkTimer2);
         if (err.message && err.message.indexOf('Rate') !== -1) {
-          thinkingEl.querySelector('.chat-thinking-label').textContent = 'Rate limited — retrying in 35s...';
+          if (thinkLabel) thinkLabel.textContent = 'Rate limited — retrying in 35s...';
           await new Promise(function(r) { setTimeout(r, 35000); });
-          thinkingEl.querySelector('.chat-thinking-label').textContent = 'Thinking...';
+          if (thinkLabel) thinkLabel.textContent = 'Thinking...';
           try {
             var retryResp = await NewsAI.chatAdvisor(apiMessages, { timeoutMs: 60000, maxTokens: 2048 });
             conversation.push({ role: 'assistant', content: retryResp });
             thinkingEl.classList.add('hidden');
-            appendMsg('assistant', retryResp, 'advisor');
+            if (thinkLabel) thinkLabel.textContent = 'Thinking...';
+            appendMsg('assistant', formatChatText(retryResp), 'advisor');
           } catch (retryErr) {
             thinkingEl.classList.add('hidden');
-            appendMsg('assistant', 'Error: ' + retryErr.message);
+            if (thinkLabel) thinkLabel.textContent = 'Thinking...';
+            appendMsg('assistant', formatChatText('Error: ' + retryErr.message));
           }
         } else {
           thinkingEl.classList.add('hidden');
-          appendMsg('assistant', 'Error: ' + err.message);
+          if (thinkLabel) thinkLabel.textContent = 'Thinking...';
+          appendMsg('assistant', formatChatText('Error: ' + err.message));
         }
       }
     }
@@ -416,22 +436,35 @@
     // === Screener (Marcus) handler ===
     async function handleScreenerMessage(text) {
       if (!StockAPI.hasKey()) {
-        appendMsg('assistant', 'Please add your Finnhub API key in Settings to search stocks.', 'screener');
+        appendMsg('assistant', formatChatText('Please add your Finnhub API key in Settings to search stocks.'), 'screener');
         return;
       }
 
       screenerConversation.push({ role: 'user', content: text });
 
       thinkingEl.classList.remove('hidden');
+      var thinkLabel = thinkingEl.querySelector('.chat-thinking-label');
+      if (thinkLabel) thinkLabel.textContent = 'Thinking...';
       scrollToBottom();
+
+      // Timeout feedback — let user know if it's taking long
+      var thinkTimer = setTimeout(function() {
+        if (thinkLabel) thinkLabel.textContent = 'Still working — AI is processing...';
+      }, 12000);
+      var thinkTimer2 = setTimeout(function() {
+        if (thinkLabel) thinkLabel.textContent = 'Taking longer than usual — hang tight...';
+      }, 30000);
 
       try {
         var response = await NewsAI.screenerAgent(screenerConversation);
 
+        clearTimeout(thinkTimer);
+        clearTimeout(thinkTimer2);
         thinkingEl.classList.add('hidden');
+        if (thinkLabel) thinkLabel.textContent = 'Thinking...';
 
         if (!response || !response.status) {
-          appendMsg('assistant', 'I had trouble understanding that. Could you rephrase what kind of stocks you\'re looking for?', 'screener');
+          appendMsg('assistant', formatChatText('I had trouble understanding that. Could you rephrase what kind of stocks you\'re looking for?'), 'screener');
           return;
         }
 
@@ -464,20 +497,23 @@
             try {
               await runScreen(lastCriteria);
             } catch(err) {
-              appendMsg('assistant', 'Error during screening: ' + err.message, 'screener');
+              appendMsg('assistant', formatChatText('Error during screening: ' + err.message), 'screener');
             }
           });
 
           editBtn.addEventListener('click', function() {
             yesBtn.disabled = true;
             editBtn.disabled = true;
-            appendMsg('assistant', 'No problem! What would you like to tweak? For example:\n• "Less risky stocks"\n• "Add a dividend requirement"\n• "Focus on tech only"\n• "Remove the debt filter"', 'screener');
+            appendMsg('assistant', formatChatText('No problem! What would you like to tweak? For example:\n• "Less risky stocks"\n• "Add a dividend requirement"\n• "Focus on tech only"\n• "Remove the debt filter"'), 'screener');
             inputEl.focus();
           });
         }
       } catch(err) {
+        clearTimeout(thinkTimer);
+        clearTimeout(thinkTimer2);
         thinkingEl.classList.add('hidden');
-        appendMsg('assistant', 'Error: ' + err.message + '. Try again.', 'screener');
+        if (thinkLabel) thinkLabel.textContent = 'Thinking...';
+        appendMsg('assistant', formatChatText('Error: ' + err.message + '. Try again.'), 'screener');
       }
     }
 
@@ -709,7 +745,7 @@
         : '✅ Found ' + matches.length + ' matches out of ' + screened + ' screened.';
       if (errors > 0) summary += ' (' + errors + ' had data errors)';
       if (matches.length > (criteria.limit || 25)) summary += ' Showing top ' + (criteria.limit || 25) + '.';
-      appendMsg('assistant', summary + '\n\nUse the toolbar to filter, sort columns, toggle metrics, and page through results. Click **+ Add** to track any stock.');
+      appendMsg('assistant', formatChatText(summary + '\n\nUse the toolbar to filter, sort columns, toggle metrics, and page through results. Click **+ Add** to track any stock.'));
     }
 
     // Screen a single stock against criteria
