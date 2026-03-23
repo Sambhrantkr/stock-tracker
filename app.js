@@ -5222,9 +5222,155 @@
     var screenResults = [];
     var currentSort = { field: null, dir: 'desc' };
 
-    // S&P 500 + popular ETFs universe — cached to avoid burning API calls
-    var UNIVERSE_KEY = 'screener_universe';
-    var UNIVERSE_TTL = 7 * 24 * 3600 * 1000; // 7 days
+    // S&P 500 + popular stocks & ETFs — hardcoded universe (no network call needed)
+    // The screener only samples ~200 at a time anyway, so this covers all major names
+    var BUILTIN_STOCKS = [
+      'AAPL','MSFT','AMZN','NVDA','GOOGL','GOOG','META','BRK.B','TSLA','UNH',
+      'XOM','JNJ','JPM','V','PG','MA','AVGO','HD','CVX','MRK',
+      'LLY','ABBV','PEP','KO','COST','ADBE','WMT','MCD','CSCO','CRM',
+      'ACN','TMO','ABT','DHR','LIN','NKE','NFLX','AMD','TXN','PM',
+      'NEE','UNP','RTX','ORCL','HON','LOW','UPS','QCOM','INTC','INTU',
+      'AMGN','SBUX','BA','GS','CAT','BLK','ISRG','MDLZ','ADP','GILD',
+      'DE','BKNG','VRTX','SYK','ADI','MMC','REGN','LRCX','PLD','CB',
+      'TMUS','CI','SCHW','ZTS','MO','SO','DUK','BDX','CME','PYPL',
+      'CL','EQIX','ITW','SLB','AON','ICE','NOC','APD','SHW','SNPS',
+      'CDNS','MCK','FDX','PNC','TGT','EMR','ORLY','GD','MPC','AJG',
+      'PSX','TFC','ANET','KLAC','AZO','MNST','ADSK','FTNT','KMB','AEP',
+      'D','SRE','MCHP','MSCI','PAYX','WELL','HUM','CTAS','DXCM','ROP',
+      'IDXX','PCAR','GIS','AIG','AFL','WMB','TRV','FAST','YUM','CTSH',
+      'BK','VRSK','HSY','ODFL','EW','CPRT','BIIB','ON','GEHC','FANG',
+      'FICO','MPWR','AXON','DECK','IT','CSGP','GWW','URI','ANSS','KEYS',
+      'CDW','ROK','TSCO','TRGP','EFX','DOV','WAT','HUBB','BR','STE',
+      'WST','TDY','FTV','ZBRA','POOL','TECH','TER','ALGN','PTC','NDSN',
+      'WEC','ES','AEE','CMS','LNT','EVRG','DTE','XEL','FE','PPL',
+      'ED','AWK','ETR','ATO','NI','PNW','OGE','CNP','NRG','CEG',
+      'CARR','OTIS','IEX','NDAQ','CBOE','MKTX','TW','FDS','MSCI','SPGI',
+      'MCO','CPAY','GPN','FIS','FISV','AXP','COF','DFS','SYF','ALLY',
+      'WFC','BAC','C','USB','PNC','TFC','FITB','HBAN','KEY','RF',
+      'CFG','MTB','ZION','CMA','SIVB','SCHW','NTRS','STT','BK','BEN',
+      'IVZ','TROW','AMG','EV','SEIC','APAM','VCIT','LM','JHG','FHI',
+      'PFE','BMY','LLY','MRK','ABBV','AMGN','GILD','REGN','VRTX','BIIB',
+      'MRNA','ILMN','DXCM','ISRG','SYK','BDX','ZBH','BSX','MDT','EW',
+      'ABT','TMO','DHR','A','WAT','MTD','TECH','BIO','PKI','HOLX',
+      'DIS','CMCSA','NFLX','CHTR','PARA','WBD','FOX','FOXA','NWS','NWSA',
+      'T','VZ','TMUS','LUMN','DISH','SIRI','ROKU','SPOT','TTD','PINS',
+      'SNAP','UBER','LYFT','ABNB','DASH','COIN','SQ','SHOP','MELI','SE',
+      'BABA','JD','PDD','BIDU','NIO','LI','XPEV','RIVN','LCID','FSR',
+      'F','GM','TM','HMC','STLA','RACE','TSLA','NIO','RIVN','LCID',
+      'COP','EOG','PXD','DVN','FANG','HES','OXY','MRO','APA','HAL',
+      'SLB','BKR','VLO','MPC','PSX','DINO','PBF','HFC','DK','CVI',
+      'LMT','RTX','NOC','GD','BA','LHX','HII','TDG','HWM','TXT',
+      'SPR','ERJ','AXON','LDOS','SAIC','BAH','CACI','KBR','PSN','HXL',
+      'PANW','CRWD','ZS','FTNT','CYBR','OKTA','NET','S','TENB','QLYS',
+      'NOW','SNOW','DDOG','MDB','ESTC','CFLT','PATH','AI','PLTR','PALANTIR',
+      'WDAY','VEEV','HUBS','ZM','DOCU','BILL','PCTY','PAYC','WK','APPN',
+      'ARM','SMCI','MRVL','MU','LRCX','KLAC','AMAT','ASML','TSM','SNPS',
+      'CDNS','ANSS','SWKS','QRVO','MCHP','NXPI','TXN','ADI','MPWR','ON'
+    ];
+    var BUILTIN_ETFS = [
+      'SPY','QQQ','IWM','DIA','VOO','VTI','VEA','VWO','EFA','EEM',
+      'AGG','BND','TLT','IEF','SHY','LQD','HYG','JNK','TIP','VTIP',
+      'GLD','SLV','IAU','GLDM','PDBC','DBC','USO','UNG','WEAT','CORN',
+      'XLF','XLK','XLE','XLV','XLI','XLY','XLP','XLU','XLB','XLRE',
+      'XLC','VGT','VHT','VFH','VIS','VCR','VDC','VPU','VAW','VNQ',
+      'ARKK','ARKW','ARKG','ARKF','ARKQ','ARKX','HACK','BOTZ','ROBO','IRBO',
+      'SOXX','SMH','XSD','SOXL','SOXS','TQQQ','SQQQ','SPXL','SPXS','UPRO',
+      'VIG','VYM','SCHD','DVY','HDV','DGRO','NOBL','SDY','SPYD','JEPI',
+      'IBIT','BITO','GBTC','ETHE','MSTR','COIN','BITQ','WGMI','DAPP','BLOK',
+      'RSP','QUAL','MTUM','VLUE','SIZE','USMV','SPLV','MOAT','COWZ','DIVO'
+    ];
+
+    // Build universe from hardcoded lists (fallback)
+    function getBuiltinUniverse() {
+      var seen = {};
+      var symbols = [];
+      BUILTIN_STOCKS.forEach(function(s) {
+        var sym = s.toUpperCase();
+        if (!seen[sym]) { seen[sym] = true; symbols.push({ symbol: sym, name: '', type: 'stock' }); }
+      });
+      BUILTIN_ETFS.forEach(function(s) {
+        var sym = s.toUpperCase();
+        if (!seen[sym]) { seen[sym] = true; symbols.push({ symbol: sym, name: '', type: 'etf' }); }
+      });
+      return symbols;
+    }
+
+    // Try to fetch dynamic universe from Finnhub (MIC-filtered to reduce payload)
+    async function fetchDynamicUniverse() {
+      var CACHE_KEY = 'screener_universe_cache';
+      var CACHE_TTL = 24 * 60 * 60 * 1000; // 1 day
+
+      // Check localStorage cache first
+      try {
+        var cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
+          var parsed = JSON.parse(cached);
+          if (parsed.ts && (Date.now() - parsed.ts) < CACHE_TTL && parsed.data && parsed.data.length > 100) {
+            return parsed.data;
+          }
+        }
+      } catch(e) {}
+
+      // Fetch NYSE and NASDAQ symbols separately (much smaller than all US)
+      var nyse = await StockAPI.fhGet('/stock/symbol?exchange=US&mic=XNYS');
+      var nasdaq = await StockAPI.fhGet('/stock/symbol?exchange=US&mic=XNAS');
+
+      var all = (nyse || []).concat(nasdaq || []);
+      if (!all.length) return null;
+
+      // Filter to common stocks and ETFs, skip warrants/units/preferred
+      var seen = {};
+      var results = [];
+      all.forEach(function(item) {
+        if (!item.symbol || !item.description) return;
+        var sym = item.symbol.toUpperCase();
+        if (seen[sym]) return;
+        // Skip symbols with dots/dashes (preferred shares, warrants, units)
+        if (sym.indexOf('.') !== -1 || sym.indexOf('-') !== -1) return;
+        // Skip very long symbols (usually warrants/units)
+        if (sym.length > 5) return;
+        seen[sym] = true;
+        var t = (item.type || '').toUpperCase();
+        var isEtf = t === 'ETP' || t === 'ETF';
+        results.push({ symbol: sym, name: item.description || '', type: isEtf ? 'etf' : 'stock' });
+      });
+
+      // Cache the results
+      if (results.length > 100) {
+        try {
+          localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data: results }));
+        } catch(e) {}
+      }
+
+      return results;
+    }
+
+    // Get the stock universe — tries dynamic fetch, falls back to hardcoded
+    async function getUniverse() {
+      var base;
+      try {
+        var dynamic = await fetchDynamicUniverse();
+        if (dynamic && dynamic.length > 100) {
+          base = dynamic;
+        } else {
+          base = getBuiltinUniverse();
+        }
+      } catch(e) {
+        base = getBuiltinUniverse();
+      }
+
+      // Merge in user-tracked stocks
+      var seen = {};
+      base.forEach(function(s) { seen[s.symbol] = true; });
+      trackedStocks.forEach(function(s) {
+        var sym = s.symbol.toUpperCase();
+        if (!seen[sym]) {
+          seen[sym] = true;
+          base.push({ symbol: sym, name: s.name || '', type: (s.type === 'ETF' ? 'etf' : 'stock') });
+        }
+      });
+      return base;
+    }
 
     fab.addEventListener('click', function() {
       var isOpen = !panel.classList.contains('hidden');
@@ -5289,78 +5435,6 @@
       h += '</div>';
       return h;
     }
-
-    // Get or build the stock universe
-    async function getUniverse() {
-      // Check cache
-      var cached = null;
-      try {
-        var raw = localStorage.getItem(UNIVERSE_KEY);
-        if (raw) {
-          cached = JSON.parse(raw);
-          if (cached.ts && Date.now() - cached.ts < UNIVERSE_TTL && cached.symbols && cached.symbols.length > 100) {
-            return cached.symbols;
-          }
-        }
-      } catch(e) {}
-
-      // Fetch US stock symbols from Finnhub
-      if (!StockAPI.hasKey()) throw new Error('Finnhub API key required for screening.');
-      appendMsg('assistant', '📡 Building stock universe from Finnhub (one-time, cached for 7 days)...');
-
-      var symbols = [];
-      try {
-        var symUrl = 'https://finnhub.io/api/v1/stock/symbol?exchange=US&token=' + (StockAPI.getKey());
-        var data = null;
-
-        // Try direct fetch first (works locally, may fail on GitHub Pages due to CORS)
-        try {
-          var controller = new AbortController();
-          var timeoutId = setTimeout(function() { controller.abort(); }, 45000);
-          var res = await fetch(symUrl, { signal: controller.signal });
-          clearTimeout(timeoutId);
-          if (res.ok) data = await res.json();
-        } catch(directErr) {
-          // Direct fetch failed (likely CORS) — fall through to proxy
-        }
-
-        // Fallback: use CORS proxy chain
-        if (!data) {
-          appendMsg('assistant', '🔄 Direct fetch blocked — trying via proxy...');
-          var proxyRes = await StockAPI.fetchViaProxy(symUrl, { timeout: 60000 });
-          var proxyText = await proxyRes.text();
-          data = JSON.parse(proxyText);
-        }
-
-        if (Array.isArray(data)) {
-          symbols = data
-            .filter(function(s) {
-              return s.symbol && s.type && (s.type === 'Common Stock' || s.type === 'ETP')
-                && s.symbol.indexOf('.') === -1
-                && s.symbol.length <= 5;
-            })
-            .map(function(s) {
-              return { symbol: s.symbol, name: s.description || '', type: s.type === 'Common Stock' ? 'stock' : 'etf' };
-            });
-        }
-      } catch(e) {
-        if (e.name === 'AbortError') throw new Error('Finnhub stock list request timed out. Try again — it may be slow on first load.');
-        throw new Error('Failed to fetch stock universe: ' + (e.message || 'Network error'));
-      }
-
-      if (symbols.length < 50) throw new Error('Universe too small (' + symbols.length + '). Check Finnhub key.');
-
-      // Cache it
-      try {
-        localStorage.setItem(UNIVERSE_KEY, JSON.stringify({ ts: Date.now(), symbols: symbols }));
-      } catch(e) {}
-
-      return symbols;
-    }
-
-    // Expose fhGet for the screener (it's inside StockAPI closure)
-    // We need to add it to StockAPI — let's use the existing searchTicker pattern instead
-    // Actually, fhGet is not exposed. We'll use a workaround via the existing API methods.
 
     // Screen stocks against criteria
     async function runScreen(criteria) {
