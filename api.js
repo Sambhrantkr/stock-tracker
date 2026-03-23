@@ -9,27 +9,52 @@ const StockAPI = (() => {
   function setKey(key) { if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('fh_api_key', key.trim()); else localStorage.setItem('fh_api_key', key.trim()); }
   function hasKey() { return getKey().length > 0; }
 
+  // ── Finnhub key 2 (second account for double throughput) ──
+  function getKey2() { return (typeof Auth !== 'undefined' && Auth.isLoggedIn()) ? (Auth.getItem('fh_api_key_2') || '') : (localStorage.getItem('fh_api_key_2') || ''); }
+  function setKey2(key) { if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('fh_api_key_2', key.trim()); else localStorage.setItem('fh_api_key_2', key.trim()); }
+  function hasKey2() { return getKey2().length > 0; }
+
+  // Round-robin counter for alternating between Finnhub keys
+  var _fhKeyToggle = 0;
+  function _nextFHKey() {
+    if (!hasKey2()) return getKey();
+    _fhKeyToggle = (_fhKeyToggle + 1) % 2;
+    return _fhKeyToggle === 0 ? getKey() : getKey2();
+  }
+
   let statusCb = null;
   function onStatus(cb) { statusCb = cb; }
   function status(msg) { if (statusCb) statusCb(msg); }
 
-  // --- Finnhub API call tracking (60 calls/min free tier) ---
-  var fhCallLog = [];
-  function trackFHCall() {
+  // --- Finnhub API call tracking — per-key (60 calls/min each) ---
+  var fhCallLog1 = [];
+  var fhCallLog2 = [];
+  function trackFHCall(keyNum) {
     var now = Date.now();
-    fhCallLog.push(now);
-    while (fhCallLog.length && fhCallLog[0] < now - 60000) fhCallLog.shift();
+    var log = keyNum === 2 ? fhCallLog2 : fhCallLog1;
+    log.push(now);
+    while (log.length && log[0] < now - 60000) log.shift();
   }
   function getFHCallsInLastMinute() {
     var now = Date.now();
-    while (fhCallLog.length && fhCallLog[0] < now - 60000) fhCallLog.shift();
-    return fhCallLog.length;
+    while (fhCallLog1.length && fhCallLog1[0] < now - 60000) fhCallLog1.shift();
+    while (fhCallLog2.length && fhCallLog2[0] < now - 60000) fhCallLog2.shift();
+    // Return the max of either key's usage (each key has its own 60/min budget)
+    return Math.max(fhCallLog1.length, hasKey2() ? fhCallLog2.length : 0);
+  }
+  function getFHTotalCallsInLastMinute() {
+    var now = Date.now();
+    while (fhCallLog1.length && fhCallLog1[0] < now - 60000) fhCallLog1.shift();
+    while (fhCallLog2.length && fhCallLog2[0] < now - 60000) fhCallLog2.shift();
+    return fhCallLog1.length + fhCallLog2.length;
   }
 
   async function fhGet(path) {
     var sep = path.indexOf('?') !== -1 ? '&' : '?';
-    var url = BASE + path + sep + 'token=' + getKey();
-    trackFHCall();
+    var activeKey = _nextFHKey();
+    var keyNum = (hasKey2() && activeKey === getKey2()) ? 2 : 1;
+    var url = BASE + path + sep + 'token=' + activeKey;
+    trackFHCall(keyNum);
     var res;
     try {
       var controller = new AbortController();
@@ -45,7 +70,7 @@ const StockAPI = (() => {
     // Retry once on server errors (5xx)
     if (res.status >= 500) {
       await new Promise(function(r) { setTimeout(r, 2000); });
-      trackFHCall();
+      trackFHCall(keyNum);
       try {
         var controller2 = new AbortController();
         var timeoutId2 = setTimeout(function() { controller2.abort(); }, 15000);
@@ -63,7 +88,7 @@ const StockAPI = (() => {
     } catch (e) {
       // Content-Length mismatch or truncated body — retry once
       if ((e.message || '').indexOf('Content-Length') !== -1 || (e.message || '').indexOf('unexpected end') !== -1) {
-        trackFHCall();
+        trackFHCall(keyNum);
         try {
           var controller3 = new AbortController();
           var timeoutId3 = setTimeout(function() { controller3.abort(); }, 15000);
@@ -701,11 +726,11 @@ const StockAPI = (() => {
   }
 
   return {
-    getKey, setKey, hasKey, onStatus,
+    getKey, setKey, hasKey, getKey2, setKey2, hasKey2, onStatus,
     searchTicker, getQuote, getProfile, getBasicFinancials,
     getNews, getEarnings, computePEHistory, getRecommendations,
     getUpgradeDowngrade, getChartData, getMarketNews, getEarningsCalendar,
     getPeers, getInsiderTransactions, getETFHoldings, getSECFilings,
-    getEPSEstimates, getFHCallsInLastMinute, fhGet,
+    getEPSEstimates, getFHCallsInLastMinute, getFHTotalCallsInLastMinute, fhGet,
   };
 })();

@@ -1268,7 +1268,7 @@ const NewsAI = (() => {
     return groqFetch([
       { role: 'system', content: sysMsg },
       { role: 'user', content: userMsg }
-    ], 1500, 0.4, { model: MODEL_DEEP, timeoutMs: 60000 });
+    ], 2500, 0.4, { model: MODEL_DEEP, timeoutMs: 90000 });
   }
 
   /**

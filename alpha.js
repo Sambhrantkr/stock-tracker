@@ -15,6 +15,16 @@ var AlphaAPI = (function() {
   function setKey2(key) { if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('av_api_key_2', key.trim()); else localStorage.setItem('av_api_key_2', key.trim()); }
   function hasKey2() { return getKey2().length > 0; }
 
+  // ── Third AV key ──
+  function getKey3() { return (typeof Auth !== 'undefined' && Auth.isLoggedIn()) ? (Auth.getItem('av_api_key_3') || '') : (localStorage.getItem('av_api_key_3') || ''); }
+  function setKey3(key) { if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('av_api_key_3', key.trim()); else localStorage.setItem('av_api_key_3', key.trim()); }
+  function hasKey3() { return getKey3().length > 0; }
+
+  // ── Fourth AV key ──
+  function getKey4() { return (typeof Auth !== 'undefined' && Auth.isLoggedIn()) ? (Auth.getItem('av_api_key_4') || '') : (localStorage.getItem('av_api_key_4') || ''); }
+  function setKey4(key) { if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) Auth.setItem('av_api_key_4', key.trim()); else localStorage.setItem('av_api_key_4', key.trim()); }
+  function hasKey4() { return getKey4().length > 0; }
+
   // --- AV daily call tracking — per-key (25 calls/day each, resets midnight EST) ---
   var AV_DAILY_LIMIT_PER_KEY = 25;
 
@@ -30,10 +40,9 @@ var AlphaAPI = (function() {
     return y + '-' + m + '-' + d;
   }
 
-  // One-time migration: convert old single-counter {date,count} to per-key {date,key1,key2}
+  // One-time migration: convert old formats to 4-key {date,key1,key2,key3,key4}
   (function migrateCallLog() {
     try {
-      // Migrate both localStorage and Auth storage
       var sources = [
         { get: function() { return localStorage.getItem('av_call_log'); }, set: function(v) { localStorage.setItem('av_call_log', v); } }
       ];
@@ -45,10 +54,15 @@ var AlphaAPI = (function() {
         if (!raw) return;
         var log = JSON.parse(raw);
         if (!log || !log.date) return;
+        // Migrate from single-counter {date,count}
         if (log.count !== undefined && log.key1 === undefined) {
-          var newLog = { date: log.date, key1: log.count || 0, key2: 0 };
-          src.set(JSON.stringify(newLog));
-          console.log('[AV] Migrated call log: key1=' + newLog.key1 + ' (key2 ready)');
+          src.set(JSON.stringify({ date: log.date, key1: log.count || 0, key2: 0, key3: 0, key4: 0 }));
+          console.log('[AV] Migrated call log from single-counter to 4-key format');
+        }
+        // Migrate from 2-key {date,key1,key2} to 4-key
+        else if (log.key1 !== undefined && log.key3 === undefined) {
+          src.set(JSON.stringify({ date: log.date, key1: log.key1 || 0, key2: log.key2 || 0, key3: 0, key4: 0 }));
+          console.log('[AV] Migrated call log from 2-key to 4-key format');
         }
       });
     } catch(e) {}
@@ -56,9 +70,9 @@ var AlphaAPI = (function() {
 
   function _getCallLog() {
     var raw = (typeof Auth !== 'undefined' && Auth.isLoggedIn()) ? Auth.getItem('av_call_log') : localStorage.getItem('av_call_log');
-    if (!raw) return { date: '', key1: 0, key2: 0 };
-    try { var d = JSON.parse(raw); return d && d.date ? { date: d.date, key1: d.key1 || 0, key2: d.key2 || 0 } : { date: '', key1: 0, key2: 0 }; }
-    catch(e) { return { date: '', key1: 0, key2: 0 }; }
+    if (!raw) return { date: '', key1: 0, key2: 0, key3: 0, key4: 0 };
+    try { var d = JSON.parse(raw); return d && d.date ? { date: d.date, key1: d.key1 || 0, key2: d.key2 || 0, key3: d.key3 || 0, key4: d.key4 || 0 } : { date: '', key1: 0, key2: 0, key3: 0, key4: 0 }; }
+    catch(e) { return { date: '', key1: 0, key2: 0, key3: 0, key4: 0 }; }
   }
   function _saveCallLog(log) {
     var s = JSON.stringify(log);
@@ -68,21 +82,25 @@ var AlphaAPI = (function() {
   function _todayLog() {
     var today = getESTDate();
     var log = _getCallLog();
-    if (log.date !== today) return { date: today, key1: 0, key2: 0 };
+    if (log.date !== today) return { date: today, key1: 0, key2: 0, key3: 0, key4: 0 };
     return log;
   }
 
-  /** Pick the active key: use key1 until exhausted, then key2 */
+  /** Pick the active key: exhaust key1 → key2 → key3 → key4 sequentially */
   function _pickAVKey() {
     var log = _todayLog();
     if (log.key1 < AV_DAILY_LIMIT_PER_KEY) return 1;
     if (hasKey2() && log.key2 < AV_DAILY_LIMIT_PER_KEY) return 2;
-    return 0; // both exhausted
+    if (hasKey3() && log.key3 < AV_DAILY_LIMIT_PER_KEY) return 3;
+    if (hasKey4() && log.key4 < AV_DAILY_LIMIT_PER_KEY) return 4;
+    return 0; // all exhausted
   }
 
   function trackAVCall(keyNum) {
     var log = _todayLog();
-    if (keyNum === 2) log.key2++;
+    if (keyNum === 4) log.key4++;
+    else if (keyNum === 3) log.key3++;
+    else if (keyNum === 2) log.key2++;
     else log.key1++;
     _saveCallLog(log);
   }
@@ -91,7 +109,9 @@ var AlphaAPI = (function() {
     var log = _todayLog();
     var rem1 = Math.max(0, AV_DAILY_LIMIT_PER_KEY - log.key1);
     var rem2 = hasKey2() ? Math.max(0, AV_DAILY_LIMIT_PER_KEY - log.key2) : 0;
-    return rem1 + rem2;
+    var rem3 = hasKey3() ? Math.max(0, AV_DAILY_LIMIT_PER_KEY - log.key3) : 0;
+    var rem4 = hasKey4() ? Math.max(0, AV_DAILY_LIMIT_PER_KEY - log.key4) : 0;
+    return rem1 + rem2 + rem3 + rem4;
   }
 
   // ── Persistent localStorage cache for quarterly data (30-day TTL) ──
@@ -138,10 +158,11 @@ var AlphaAPI = (function() {
   function avGet(params) {
     var keyNum = _pickAVKey();
     if (keyNum === 0) {
-      var total = hasKey2() ? '50' : '25';
+      var numKeys = 1 + (hasKey2() ? 1 : 0) + (hasKey3() ? 1 : 0) + (hasKey4() ? 1 : 0);
+      var total = numKeys * 25;
       return Promise.reject(new Error('Alpha Vantage daily limit reached (' + total + '/day). Resets tomorrow.'));
     }
-    var apiKey = keyNum === 2 ? getKey2() : getKey();
+    var apiKey = keyNum === 4 ? getKey4() : keyNum === 3 ? getKey3() : keyNum === 2 ? getKey2() : getKey();
     trackAVCall(keyNum);
     console.log('[AV] Using key ' + keyNum + ' (' + getAVCallsRemaining() + ' calls remaining)');
     var url = BASE + '?' + params + '&apikey=' + apiKey;
@@ -471,6 +492,12 @@ var AlphaAPI = (function() {
     getKey2: getKey2,
     setKey2: setKey2,
     hasKey2: hasKey2,
+    getKey3: getKey3,
+    setKey3: setKey3,
+    hasKey3: hasKey3,
+    getKey4: getKey4,
+    setKey4: setKey4,
+    hasKey4: hasKey4,
     getAVCallsRemaining: getAVCallsRemaining,
     getEarningsTranscript: getEarningsTranscript,
     guessLatestQuarter: guessLatestQuarter,

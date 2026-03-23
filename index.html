@@ -83,11 +83,14 @@
             <tbody>
               <tr><td>Google Sign-In</td><td>Optional</td><td>Unlimited</td><td>User-scoped data isolation (sign in via sidebar)</td></tr>
               <tr><td>Finnhub</td><td>Yes</td><td>60 calls/min</td><td>Quotes, profiles, news, earnings, peers, insider data</td></tr>
+              <tr><td>Finnhub Key 2</td><td>No</td><td>+60 calls/min</td><td>Doubles Finnhub throughput (round-robin, different account)</td></tr>
               <tr><td>Groq</td><td>No</td><td>14,400/day</td><td>AI technicals, fundamentals, transcript, senior verdict, chat</td></tr>
               <tr><td>Groq Key 2</td><td>No</td><td>+14,400/day</td><td>Doubles Groq throughput (use different account)</td></tr>
               <tr><td>Gemini</td><td>No</td><td>1,500/day</td><td>AI news, analyst, macro analysis (offloads Groq)</td></tr>
               <tr><td>Alpha Vantage</td><td>No</td><td>25/day</td><td>Company overview, transcripts, technicals, revenue (cached 30d)</td></tr>
               <tr><td>AV Key 2</td><td>No</td><td>+25/day</td><td>Extends AV limit when key 1 exhausted</td></tr>
+              <tr><td>AV Key 3</td><td>No</td><td>+25/day</td><td>Extends AV limit when keys 1-2 exhausted</td></tr>
+              <tr><td>AV Key 4</td><td>No</td><td>+25/day</td><td>Extends AV limit when keys 1-3 exhausted (max 100/day)</td></tr>
             </tbody>
           </table>
         </div>
@@ -141,6 +144,11 @@
           <input type="text" id="api-key-input" placeholder="Paste Finnhub API key..." aria-label="Finnhub API key" />
         </div>
         <div class="key-row">
+          <p><a href="https://finnhub.io/register" target="_blank" rel="noopener">Finnhub</a> key 2 (optional, doubles throughput):</p>
+          <input type="text" id="fh-key2-input" placeholder="Paste 2nd Finnhub key (different account)..." aria-label="Finnhub API key 2" />
+          <div style="font-size:0.6rem;color:var(--muted);margin-top:0.15rem;">Keys alternate automatically (round-robin) — doubles your 60 calls/min to 120</div>
+        </div>
+        <div class="key-row">
           <p><a href="https://console.groq.com/keys" target="_blank" rel="noopener">Groq</a> key (optional, AI):</p>
           <input type="text" id="groq-key-input" placeholder="Paste Groq API key..." aria-label="Groq API key" />
         </div>
@@ -162,7 +170,15 @@
         <div class="key-row">
           <p><a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">Alpha Vantage</a> key 2 (optional, doubles daily limit):</p>
           <input type="text" id="av-key2-input" placeholder="Paste 2nd Alpha Vantage key..." aria-label="Alpha Vantage API key 2" />
-          <div style="font-size:0.6rem;color:var(--muted);margin-top:0.15rem;">Key 1 is used first; key 2 kicks in when key 1 is exhausted. Data is cached 30 days.</div>
+          <div style="font-size:0.6rem;color:var(--muted);margin-top:0.15rem;">Keys are used sequentially: key 1 first, then key 2, 3, 4. Data is cached 30 days.</div>
+        </div>
+        <div class="key-row">
+          <p><a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">Alpha Vantage</a> key 3 (optional):</p>
+          <input type="text" id="av-key3-input" placeholder="Paste 3rd Alpha Vantage key..." aria-label="Alpha Vantage API key 3" />
+        </div>
+        <div class="key-row">
+          <p><a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">Alpha Vantage</a> key 4 (optional):</p>
+          <input type="text" id="av-key4-input" placeholder="Paste 4th Alpha Vantage key..." aria-label="Alpha Vantage API key 4" />
         </div>
         <div class="key-row">
           <p>📧 Morning Report email (optional):</p>

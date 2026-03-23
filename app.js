@@ -12,6 +12,9 @@
   var geminiKeyInput = document.getElementById('gemini-key-input');
   var avKeyInput = document.getElementById('av-key-input');
   var avKey2Input = document.getElementById('av-key2-input');
+  var avKey3Input = document.getElementById('av-key3-input');
+  var avKey4Input = document.getElementById('av-key4-input');
+  var fhKey2Input = document.getElementById('fh-key2-input');
   var reportEmailInput = document.getElementById('report-email-input');
   var saveKeyBtn = document.getElementById('save-key-btn');
   var settingsBtn = document.getElementById('settings-btn');
@@ -87,32 +90,44 @@
     var gmk = geminiKeyInput ? geminiKeyInput.value.trim() : '';
     var em = reportEmailInput ? reportEmailInput.value.trim() : '';
     if (fk && fk.indexOf('\u2022') !== 0) StockAPI.setKey(fk);
+    var fk2 = fhKey2Input ? fhKey2Input.value.trim() : '';
+    if (fk2 && fk2.indexOf('\u2022') !== 0) StockAPI.setKey2(fk2);
     if (gk && gk.indexOf('\u2022') !== 0) NewsAI.setKey(gk);
     if (gk2 && gk2.indexOf('\u2022') !== 0) NewsAI.setKey2(gk2);
     if (gmk && gmk.indexOf('\u2022') !== 0) NewsAI.setGeminiKey(gmk);
     if (ak && ak.indexOf('\u2022') !== 0) AlphaAPI.setKey(ak);
     var ak2 = avKey2Input ? avKey2Input.value.trim() : '';
     if (ak2 && ak2.indexOf('\u2022') !== 0) AlphaAPI.setKey2(ak2);
+    var ak3 = avKey3Input ? avKey3Input.value.trim() : '';
+    if (ak3 && ak3.indexOf('\u2022') !== 0) AlphaAPI.setKey3(ak3);
+    var ak4 = avKey4Input ? avKey4Input.value.trim() : '';
+    if (ak4 && ak4.indexOf('\u2022') !== 0) AlphaAPI.setKey4(ak4);
     if (em) localStorage.setItem('report_email', em);
     else if (em === '') localStorage.removeItem('report_email');
     if (StockAPI.hasKey()) banner.classList.add('hidden');
     keyInput.value = StockAPI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
+    if (fhKey2Input) fhKey2Input.value = StockAPI.hasKey2() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     groqKeyInput.value = NewsAI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     if (groqKey2Input) groqKey2Input.value = NewsAI.hasKey2() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     if (geminiKeyInput) geminiKeyInput.value = NewsAI.hasGeminiKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     avKeyInput.value = AlphaAPI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     if (avKey2Input) avKey2Input.value = AlphaAPI.hasKey2() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
+    if (avKey3Input) avKey3Input.value = AlphaAPI.hasKey3() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
+    if (avKey4Input) avKey4Input.value = AlphaAPI.hasKey4() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     if (reportEmailInput) reportEmailInput.value = localStorage.getItem('report_email') || '';
     if (StockAPI.hasKey()) refreshAll();
   });
   if (settingsBtn) settingsBtn.addEventListener('click', function() {
     banner.classList.toggle('hidden');
     keyInput.value = StockAPI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
+    if (fhKey2Input) fhKey2Input.value = StockAPI.hasKey2() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     groqKeyInput.value = NewsAI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     if (groqKey2Input) groqKey2Input.value = NewsAI.hasKey2() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     if (geminiKeyInput) geminiKeyInput.value = NewsAI.hasGeminiKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     avKeyInput.value = AlphaAPI.hasKey() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     if (avKey2Input) avKey2Input.value = AlphaAPI.hasKey2() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
+    if (avKey3Input) avKey3Input.value = AlphaAPI.hasKey3() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
+    if (avKey4Input) avKey4Input.value = AlphaAPI.hasKey4() ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
     if (reportEmailInput) reportEmailInput.value = localStorage.getItem('report_email') || '';
   });
   var aboutBtn = document.getElementById('about-btn');
@@ -142,6 +157,9 @@
   if (geminiKeyInput) geminiKeyInput.addEventListener('focus', function() { if (geminiKeyInput.value.indexOf('\u2022') === 0) geminiKeyInput.value = ''; });
   avKeyInput.addEventListener('focus', function() { if (avKeyInput.value.indexOf('\u2022') === 0) avKeyInput.value = ''; });
   if (avKey2Input) avKey2Input.addEventListener('focus', function() { if (avKey2Input.value.indexOf('\u2022') === 0) avKey2Input.value = ''; });
+  if (avKey3Input) avKey3Input.addEventListener('focus', function() { if (avKey3Input.value.indexOf('\u2022') === 0) avKey3Input.value = ''; });
+  if (avKey4Input) avKey4Input.addEventListener('focus', function() { if (avKey4Input.value.indexOf('\u2022') === 0) avKey4Input.value = ''; });
+  if (fhKey2Input) fhKey2Input.addEventListener('focus', function() { if (fhKey2Input.value.indexOf('\u2022') === 0) fhKey2Input.value = ''; });
   function saveTracked() { userSet('tracked_stocks', trackedStocks); }
 
   // --- Search ---
@@ -311,9 +329,11 @@
     // Show/update the AV budget bar in settings if it exists
     var budgetEl = document.getElementById('av-budget-display');
     if (budgetEl) {
-      var total = AlphaAPI.hasKey2() ? 50 : 25;
+      var numKeys = 1 + (AlphaAPI.hasKey2() ? 1 : 0) + (AlphaAPI.hasKey3() ? 1 : 0) + (AlphaAPI.hasKey4() ? 1 : 0);
+      var total = numKeys * 25;
       var used = total - remaining;
-      budgetEl.innerHTML = 'AV calls: ' + remaining + '/' + total + ' remaining' + (AlphaAPI.hasKey2() ? ' (2 keys)' : '') + ' (resets midnight EST)'
+      var keyLabel = numKeys > 1 ? ' (' + numKeys + ' keys)' : '';
+      budgetEl.innerHTML = 'AV calls: ' + remaining + '/' + total + ' remaining' + keyLabel + ' (resets midnight EST)'
         + ' <button id="av-reset-btn" style="font-size:0.6rem;padding:0.1rem 0.4rem;margin-left:0.3rem;cursor:pointer;background:none;border:1px solid var(--border);color:var(--muted);border-radius:3px;">Reset</button>';
       var resetBtn = document.getElementById('av-reset-btn');
       if (resetBtn) {
@@ -3686,9 +3706,9 @@
     var dataLoaders = [];
     // Check Finnhub budget — if we're close to the limit, stagger calls
     var fhUsed = StockAPI.getFHCallsInLastMinute();
-    if (fhUsed > 45) {
-      // Near rate limit — wait before firing parallel batch
-      await delay(Math.min((fhUsed - 45) * 1000, 15000));
+    if (fhUsed > 40) {
+      // Near rate limit — wait proportionally longer as we approach 60
+      await delay(Math.min((fhUsed - 40) * 1500, 20000));
     }
     dataLoaders.push(loadNews(symbol).catch(function(e) { errors.push('News: ' + e.message); }));
     dataLoaders.push(loadAnalystData(symbol).catch(function(e) { errors.push('Analyst: ' + e.message); }));
@@ -3866,11 +3886,11 @@
   function delay(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
 
   // --- Auto-refresh ---
-  // Finnhub free tier: 60 calls/min
+  // Finnhub free tier: 60 calls/min — supports up to 40 stocks
   // Budget per cycle (60s):
-  //   Fast (every 60s): quote only — 1 call/stock = 15 calls for 15 stocks
-  //   Medium (every 5 min): quote + news — 2 calls/stock = 30 calls (macro shared = +1)
-  //   Full (every 15 min): batched — 5 stocks/cycle over 3 cycles = ~7 calls/stock × 5 = 35 calls/cycle
+  //   Fast (every 60s): quote only — 1 call/stock = 40 calls for 40 stocks (fits in 60/min)
+  //   Medium (every 5 min): quote + news — 2 calls/stock = 80 calls → stagger over 2 min
+  //   Full (every 15 min): batched — 4 stocks/cycle over 10 cycles = ~7 calls/stock × 4 = 28 calls/cycle
   var refreshInProgress = false;
   var refreshCycleCount = 0;
   var fullRefreshBatch = 0; // tracks which batch of stocks to full-refresh
@@ -3887,9 +3907,9 @@
     var failedStocks = [];
 
     if (isFull) {
-      // Full refresh — batch 5 stocks per cycle to stay under 60 calls/min
-      // ~7 calls/stock × 5 = 35 calls, leaves headroom
-      var batchSize = 5;
+      // Full refresh — batch 4 stocks per cycle to stay under 60 calls/min
+      // ~7 calls/stock × 4 = 28 calls, leaves headroom for ticker bar
+      var batchSize = Math.min(4, total);
       var startIdx = (fullRefreshBatch * batchSize) % total;
       fullRefreshBatch++;
       var batch = [];
@@ -3916,10 +3936,12 @@
             renderDetailKPIs(sym, cache[sym] || {}, trackedStocks[j]);
           }
         } catch(e) {}
-        if (j < total - 1) await delay(200);
+        // Stagger quote calls — 500ms keeps us well under 60/min even with 40 stocks
+        if (j < total - 1) await delay(500);
       }
     } else if (isMedium) {
       // Medium refresh — quote + news for all, macro once
+      // 2 calls/stock × 40 = 80 calls → stagger at 1.5s/stock = ~60s total, safe under 60/min
       // Prefetch shared macro news (1 call)
       try { await loadMacroNews(trackedStocks[0].symbol); } catch(e) {}
       for (var i = 0; i < total; i++) {
@@ -3937,7 +3959,7 @@
         } catch (e) {
           failedStocks.push(sym);
         }
-        if (i < total - 1) await delay(300);
+        if (i < total - 1) await delay(1500);
       }
       checkPriceAlerts();
     } else {
@@ -3953,7 +3975,8 @@
             renderDetailKPIs(sym, cache[sym] || {}, s);
           }
         } catch(e) {}
-        if (i < total - 1) await delay(200);
+        // 1 call/stock × 40 = 40 calls; 800ms spacing = ~32s total, safe under 60/min
+        if (i < total - 1) await delay(800);
       }
       checkPriceAlerts();
     }
@@ -3980,6 +4003,9 @@
     if (!StockAPI.hasKey()) return;
     // Skip if tab is hidden to save API calls
     if (document.hidden) return;
+    // Skip if Finnhub is near rate limit (e.g. during initial load of 40 stocks)
+    var fhUsed = StockAPI.getFHCallsInLastMinute();
+    if (fhUsed > 45) return;
     // Parallel fetch all 8 ticker quotes
     var promises = TICKER_SYMBOLS.map(function(sym) {
       return StockAPI.getQuote(sym).then(function(q) {
@@ -4504,6 +4530,13 @@
         morningReportProgress.innerHTML = '<div>\u26A0\uFE0F ' + step + ' — ' + sym + ': Failed — ' + e.message + '</div><div class="mrp-bar" style="width:' + pct + '%"></div>';
         await delay(2000);
       }
+
+      // Pace between stocks — let Finnhub rate limit window slide
+      if (i < total - 1) {
+        var fhUsed = StockAPI.getFHCallsInLastMinute();
+        var cooldown = fhUsed > 45 ? 8000 : (fhUsed > 30 ? 4000 : 2000);
+        await delay(cooldown);
+      }
     }
 
     // Build email
@@ -4721,17 +4754,56 @@
     startTickerRefresh();
     if (trackedStocks.length) {
       selectStock(trackedStocks[0].symbol);
-      // Load stocks sequentially to stay within 60 calls/min
+      // Smart init load for up to 40 stocks:
+      // Phase 1: Full load for selected stock (immediate detail view)
+      // Phase 2: Quick load (quote + profile/financials) for all others (sidebar prices)
+      // Phase 3: Backfill heavy data (news, earnings, etc.) in batches of 4
       (async function() {
-        for (var i = 0; i < trackedStocks.length; i++) {
+        // Phase 1: Full load for selected stock
+        try {
+          await loadStockData(trackedStocks[0].symbol, trackedStocks[0].type);
+        } catch(e) {
+          console.warn('Init load error for ' + trackedStocks[0].symbol + ':', e.message);
+        }
+
+        // Phase 2: Quick load for remaining stocks — just quote + profile/financials
+        // 3 calls/stock, staggered to stay under 60/min
+        for (var i = 1; i < trackedStocks.length; i++) {
           var s = trackedStocks[i];
           try {
-            await loadStockData(s.symbol, s.type);
+            await loadQuote(s.symbol).catch(function() {});
+            await loadProfileAndFinancials(s.symbol, s.type).catch(function() {});
+            renderSidebar();
           } catch(e) {
-            console.warn('Init load error for ' + s.symbol + ':', e.message);
+            console.warn('Quick load error for ' + s.symbol + ':', e.message);
           }
-          if (i < trackedStocks.length - 1) await delay(1500);
+          // Check rate limit budget — slow down if getting close
+          var fhUsed = StockAPI.getFHCallsInLastMinute();
+          var gapMs = fhUsed > 45 ? 3000 : (fhUsed > 30 ? 1500 : 800);
+          if (i < trackedStocks.length - 1) await delay(gapMs);
         }
+
+        // Phase 3: Backfill heavy data (news, earnings, analyst, insider, etc.)
+        // Process in batches of 4 stocks with rate-limit-aware pacing
+        var backfillBatch = 4;
+        for (var bi = 1; bi < trackedStocks.length; bi += backfillBatch) {
+          var batchEnd = Math.min(bi + backfillBatch, trackedStocks.length);
+          for (var j = bi; j < batchEnd; j++) {
+            var bs = trackedStocks[j];
+            try {
+              await loadStockData(bs.symbol, bs.type);
+            } catch(e) {
+              console.warn('Backfill error for ' + bs.symbol + ':', e.message);
+            }
+            // Adaptive delay based on current API usage
+            var fhNow = StockAPI.getFHCallsInLastMinute();
+            var bfGap = fhNow > 50 ? 4000 : (fhNow > 35 ? 2500 : 1500);
+            if (j < batchEnd - 1) await delay(bfGap);
+          }
+          // Pause between batches to let the rate limit window slide
+          if (batchEnd < trackedStocks.length) await delay(5000);
+        }
+
         startAutoRefresh();
       })();
     } else {
@@ -5007,11 +5079,20 @@
       }
 
       // All other tracked stocks get condensed but complete AI context
+      // Cap at 20 most relevant stocks to avoid blowing token limits
       if (trackedStocks && trackedStocks.length) {
         var others = trackedStocks.filter(function(s) { return s.symbol !== sym; });
         if (others.length) {
-          sections.push('\n=== OTHER PORTFOLIO STOCKS ===');
-          others.forEach(function(s) {
+          sections.push('\n=== OTHER PORTFOLIO STOCKS (' + others.length + ' total) ===');
+          // If >20 stocks, prioritize ones with verdicts/AI data
+          var toInclude = others;
+          if (others.length > 20) {
+            var withData = others.filter(function(s) { var oc = cache[s.symbol]; return oc && (oc.verdictResult || oc.aiResult); });
+            var withoutData = others.filter(function(s) { var oc = cache[s.symbol]; return !oc || (!oc.verdictResult && !oc.aiResult); });
+            toInclude = withData.concat(withoutData).slice(0, 20);
+            if (others.length > 20) sections.push('(Showing top 20 of ' + others.length + ' — remaining: ' + others.slice(20).map(function(s) { return s.symbol; }).join(', ') + ')');
+          }
+          toInclude.forEach(function(s) {
             var oc = cache[s.symbol];
             if (oc) {
               sections.push(buildStockContext(s.symbol, oc, false));
