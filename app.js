@@ -5349,14 +5349,18 @@
     async function getUniverse() {
       var base;
       try {
+        statusBar.textContent = 'Fetching stock universe...';
         var dynamic = await fetchDynamicUniverse();
         if (dynamic && dynamic.length > 100) {
           base = dynamic;
+          statusBar.textContent = 'Universe: ' + dynamic.length + ' symbols from Finnhub';
         } else {
           base = getBuiltinUniverse();
+          statusBar.textContent = 'Universe: ' + base.length + ' built-in symbols';
         }
       } catch(e) {
         base = getBuiltinUniverse();
+        statusBar.textContent = 'Universe: ' + base.length + ' built-in symbols (fallback)';
       }
 
       // Merge in user-tracked stocks
@@ -5456,7 +5460,7 @@
 
       // Limit universe to a manageable size for API calls
       // Shuffle and take a sample to get diverse results
-      var maxToScreen = Math.min(candidates.length, 200);
+      var maxToScreen = Math.min(candidates.length, 800);
       var shuffled = candidates.slice();
       for (var i = shuffled.length - 1; i > 0; i--) {
         var j = Math.floor(Math.random() * (i + 1));
@@ -5478,8 +5482,8 @@
       var matches = [];
       var screened = 0;
       var errors = 0;
-      var batchSize = 3; // 3 concurrent to stay under 60/min
-      var delayBetweenBatches = 3200; // ~18 calls/min safe
+      var batchSize = 5; // 5 concurrent — safe with 2 Finnhub keys (120/min)
+      var delayBetweenBatches = 2800; // ~107 calls/min with 2 keys
 
       for (var bi = 0; bi < toScreen.length; bi += batchSize) {
         var batch = toScreen.slice(bi, bi + batchSize);
@@ -5496,11 +5500,11 @@
 
         var pct = Math.round(screened / toScreen.length * 100);
         if (progressFill) progressFill.style.width = pct + '%';
-        if (progressEl) progressEl.firstChild.textContent = '🔍 Screened ' + screened + '/' + toScreen.length + ' (' + matches.length + ' matches)...';
+        if (progressEl) progressEl.firstChild.textContent = '🔍 Screened ' + screened + '/' + toScreen.length + ' from ' + candidates.length + ' candidates (' + matches.length + ' matches)...';
 
-        // Check if we have enough matches
+        // Check if we have enough matches — only stop early if we have plenty
         var limit = (criteria.limit || 25);
-        if (matches.length >= limit * 2) break; // Got plenty, stop early
+        if (matches.length >= limit * 3 && screened >= 200) break; // Got plenty, stop early
 
         // Rate limit delay between batches
         if (bi + batchSize < toScreen.length) {
@@ -5549,8 +5553,16 @@
           netProfitMarginTTM: data.netMargin,
           roeTTM: data.roeTTM,
           roaTTM: data.roaTTM,
+          roicTTM: data.roicTTM || null,
           currentRatioQuarterly: data.currentRatio,
+          quickRatioQuarterly: data.quickRatio || null,
           totalDebtToEquityQuarterly: data.debtEquity,
+          revenueGrowth3Y: data.revenueGrowth3Y || null,
+          revenueGrowth5Y: data.revenueGrowth5Y || null,
+          epsGrowth3Y: data.epsGrowth3Y || null,
+          epsGrowth5Y: data.epsGrowth5Y || null,
+          pbAnnual: data.annualSeries && data.annualSeries.pb && data.annualSeries.pb.length ? data.annualSeries.pb[0].v : null,
+          psAnnual: data.annualSeries && data.annualSeries.ps && data.annualSeries.ps.length ? data.annualSeries.ps[0].v : null,
           marketCap: null,
           price: null,
           change: null,
@@ -5593,33 +5605,51 @@
           }
         }
 
-        // Apply filters
-        if (criteria.filters && criteria.filters.length) {
-          for (var i = 0; i < criteria.filters.length; i++) {
-            var f = criteria.filters[i];
-            var val = metrics[f.field];
-            if (val == null) return null; // missing data = skip
-
-            if (f.op === '>' && !(val > f.value)) return null;
-            if (f.op === '<' && !(val < f.value)) return null;
-            if (f.op === '>=' && !(val >= f.value)) return null;
-            if (f.op === '<=' && !(val <= f.value)) return null;
-            if (f.op === 'between') {
-              if (!Array.isArray(f.value) || f.value.length !== 2) return null;
-              if (!(val >= f.value[0] && val <= f.value[1])) return null;
-            }
-          }
-        }
-
-        // Get quote for price data
+        // Get quote for price data (before filters so price-based filters work)
         try {
           var quote = await StockAPI.getQuote(stock.symbol);
           if (quote) {
             metrics.price = quote.price;
             metrics.change = quote.change;
             metrics.changePct = quote.changePct;
+            // Compute distance from 52-week high/low
+            if (metrics['52WeekHigh'] && quote.price) {
+              metrics.pctFrom52High = ((quote.price - metrics['52WeekHigh']) / metrics['52WeekHigh']) * 100;
+            }
+            if (metrics['52WeekLow'] && quote.price) {
+              metrics.pctFrom52Low = ((quote.price - metrics['52WeekLow']) / metrics['52WeekLow']) * 100;
+            }
           }
         } catch(e) {}
+
+        // Apply filters
+        if (criteria.filters && criteria.filters.length) {
+          var failCount = 0;
+          var totalFilters = criteria.filters.length;
+          for (var i = 0; i < criteria.filters.length; i++) {
+            var f = criteria.filters[i];
+            var val = metrics[f.field];
+            if (val == null) {
+              // Missing data: if filter is marked required, reject; otherwise skip this filter
+              if (f.required) return null;
+              failCount++;
+              continue;
+            }
+
+            var passed = true;
+            if (f.op === '>' && !(val > f.value)) passed = false;
+            if (f.op === '<' && !(val < f.value)) passed = false;
+            if (f.op === '>=' && !(val >= f.value)) passed = false;
+            if (f.op === '<=' && !(val <= f.value)) passed = false;
+            if (f.op === 'between') {
+              if (!Array.isArray(f.value) || f.value.length !== 2) passed = false;
+              else if (!(val >= f.value[0] && val <= f.value[1])) passed = false;
+            }
+            if (!passed) return null;
+          }
+          // If more than half the filters had missing data, skip this stock
+          if (totalFilters > 0 && failCount > totalFilters * 0.5) return null;
+        }
 
         return { symbol: stock.symbol, name: metrics.name || stock.name, type: stock.type, metrics: metrics };
       } catch(e) {

@@ -1426,24 +1426,53 @@ const NewsAI = (() => {
     sysMsg += '- Use encouraging language: "Great choice", "That makes a lot of sense", "Smart thinking"\n';
     sysMsg += '- When you finally present criteria, make sure your "message" explains each filter in beginner-friendly terms\n\n';
     sysMsg += 'AVAILABLE SCREENING FIELDS (Finnhub metric names — use these internally, but explain them simply to the user):\n';
-    sysMsg += '- marketCap: market capitalization in millions (large>50000, mid=10000-50000, small=2000-10000, micro<2000)\n';
-    sysMsg += '- peTTM: trailing P/E ratio (low<15, moderate=15-25, high>25)\n';
+    sysMsg += '--- VALUATION ---\n';
+    sysMsg += '- marketCap: market capitalization in millions (mega>200000, large=10000-200000, mid=2000-10000, small=300-2000, micro<300)\n';
+    sysMsg += '- peTTM: trailing P/E ratio (low<15, moderate=15-25, high>25, negative=unprofitable)\n';
+    sysMsg += '- pbAnnual: price-to-book ratio (low<1.5, moderate=1.5-3, high>3)\n';
+    sysMsg += '- psAnnual: price-to-sales ratio (low<2, moderate=2-5, high>5)\n';
     sysMsg += '- epsTTM: earnings per share TTM\n';
-    sysMsg += '- dividendYield: annual dividend yield % (high>3, moderate=1-3, low<1)\n';
-    sysMsg += '- beta: volatility vs market (low<0.8, moderate=0.8-1.2, high>1.2)\n';
-    sysMsg += '- revenueGrowthTTMYoy: revenue growth % year-over-year\n';
+    sysMsg += '--- DIVIDENDS ---\n';
+    sysMsg += '- dividendYield: annual dividend yield % (high>4, good=2-4, moderate=1-2, low<1)\n';
+    sysMsg += '--- GROWTH ---\n';
+    sysMsg += '- revenueGrowthTTMYoy: revenue growth % year-over-year (trailing twelve months)\n';
+    sysMsg += '- revenueGrowth3Y: revenue growth % 3-year CAGR\n';
+    sysMsg += '- revenueGrowth5Y: revenue growth % 5-year CAGR\n';
     sysMsg += '- epsGrowthTTMYoy: EPS growth % year-over-year\n';
+    sysMsg += '- epsGrowth3Y: EPS growth % 3-year CAGR\n';
+    sysMsg += '- epsGrowth5Y: EPS growth % 5-year CAGR\n';
+    sysMsg += '--- PROFITABILITY ---\n';
     sysMsg += '- grossMarginTTM: gross margin %\n';
     sysMsg += '- operatingMarginTTM: operating margin %\n';
     sysMsg += '- netProfitMarginTTM: net profit margin %\n';
-    sysMsg += '- roeTTM: return on equity %\n';
+    sysMsg += '- roeTTM: return on equity % (excellent>20, good=15-20, average=10-15)\n';
     sysMsg += '- roaTTM: return on assets %\n';
-    sysMsg += '- currentRatioQuarterly: current ratio (healthy>1.5)\n';
-    sysMsg += '- totalDebtToEquityQuarterly: debt-to-equity ratio (low<0.5, moderate=0.5-1, high>1)\n';
+    sysMsg += '- roicTTM: return on invested capital % (excellent>15, good=10-15)\n';
+    sysMsg += '--- FINANCIAL HEALTH ---\n';
+    sysMsg += '- currentRatioQuarterly: current ratio (healthy>1.5, adequate=1-1.5, risky<1)\n';
+    sysMsg += '- quickRatioQuarterly: quick ratio (healthy>1, risky<0.5)\n';
+    sysMsg += '- totalDebtToEquityQuarterly: debt-to-equity ratio (low<0.5, moderate=0.5-1, high>1, very high>2)\n';
+    sysMsg += '--- RISK & MOMENTUM ---\n';
+    sysMsg += '- beta: volatility vs market (low<0.8, moderate=0.8-1.2, high>1.2)\n';
+    sysMsg += '- price: current stock price\n';
+    sysMsg += '- changePct: today\'s price change %\n';
+    sysMsg += '- pctFrom52High: % distance from 52-week high (negative = below high, e.g. -20 means 20% below)\n';
+    sysMsg += '- pctFrom52Low: % above 52-week low (positive = above low, e.g. 50 means 50% above)\n';
     sysMsg += '- 52WeekHigh: 52-week high price\n';
     sysMsg += '- 52WeekLow: 52-week low price\n';
-    sysMsg += '- sector: finnhubIndustry from profile (Technology, Healthcare, Financial Services, Energy, etc.)\n';
+    sysMsg += '--- CLASSIFICATION ---\n';
+    sysMsg += '- sector: finnhubIndustry from profile (Technology, Healthcare, Financial Services, Energy, Consumer Cyclical, Consumer Defensive, Industrials, Basic Materials, Real Estate, Utilities, Communication Services)\n';
     sysMsg += '- type: "stock" or "etf" or "both"\n\n';
+    sysMsg += 'FILTER TIPS (use these to build better criteria):\n';
+    sysMsg += '- For "value investing": low peTTM (<15), low pbAnnual (<1.5), good roeTTM (>15), low totalDebtToEquityQuarterly (<1)\n';
+    sysMsg += '- For "growth investing": high revenueGrowthTTMYoy (>15), high epsGrowthTTMYoy (>20), high grossMarginTTM (>40)\n';
+    sysMsg += '- For "dividend income": high dividendYield (>3), positive epsTTM, low totalDebtToEquityQuarterly (<1.5)\n';
+    sysMsg += '- For "bargain hunting": pctFrom52High between [-40,-15] (stocks that dropped significantly from highs)\n';
+    sysMsg += '- For "momentum": pctFrom52Low > 30 (stocks trending up from lows), positive changePct\n';
+    sysMsg += '- For "quality": roeTTM > 15, netProfitMarginTTM > 10, currentRatioQuarterly > 1.5\n';
+    sysMsg += '- For "small cap gems": marketCap between [300,2000], revenueGrowthTTMYoy > 15\n';
+    sysMsg += '- You can add "required": true to any filter to reject stocks missing that data (default: lenient — missing data is skipped)\n';
+    sysMsg += '- Use 3-6 filters for best results. Too few = too broad, too many = no matches.\n\n';
     sysMsg += 'RESPONSE FORMAT — you MUST respond with ONLY valid JSON, no markdown, no commentary:\n';
     sysMsg += '{\n';
     sysMsg += '  "status": "clarify" or "criteria" or "refine",\n';
@@ -1464,12 +1493,12 @@ const NewsAI = (() => {
     sysMsg += '- When status is "criteria" or "refine", criteria MUST be populated\n';
     sysMsg += '- In the "message" field, explain each filter in plain English when presenting criteria\n';
     sysMsg += '- Use the "label" field in each filter to provide a beginner-friendly description (e.g. "Companies earning good profits" instead of "netProfitMarginTTM > 10")\n';
-    sysMsg += '- Keep filters reasonable — 2-5 filters is ideal. Too many = no results.\n';
+    sysMsg += '- Keep filters reasonable — 3-6 filters is ideal. Use "required": true on the most important ones.\n';
     sysMsg += '- ALWAYS respond with valid JSON only. No markdown code blocks.';
 
     return groqFetch(
       [{ role: 'system', content: sysMsg }].concat(messages),
-      800, 0.4, { model: MODEL_MID }
+      1000, 0.4, { model: MODEL_MID }
     );
   }
 
