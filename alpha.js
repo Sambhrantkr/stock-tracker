@@ -97,6 +97,7 @@ var AlphaAPI = (function() {
   // ── Persistent localStorage cache for quarterly data (30-day TTL) ──
   // Financial statements only change quarterly, so caching saves precious AV calls.
   var AV_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+  var AV_SHORT_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours — for technicals & sentiment
 
   function _cacheKey(symbol, fn) { return 'av_cache_' + symbol + '_' + fn; }
 
@@ -118,6 +119,20 @@ var AlphaAPI = (function() {
     try {
       localStorage.setItem(_cacheKey(symbol, fn), JSON.stringify({ ts: Date.now(), data: data }));
     } catch(e) { /* storage full — ignore */ }
+  }
+
+  function _shortCacheGet(symbol, fn) {
+    try {
+      var raw = localStorage.getItem(_cacheKey(symbol, fn));
+      if (!raw) return null;
+      var entry = JSON.parse(raw);
+      if (!entry || !entry.ts || !entry.data) return null;
+      if (Date.now() - entry.ts > AV_SHORT_CACHE_TTL_MS) {
+        localStorage.removeItem(_cacheKey(symbol, fn));
+        return null;
+      }
+      return entry.data;
+    } catch(e) { return null; }
   }
 
   function avGet(params) {
@@ -228,10 +243,12 @@ var AlphaAPI = (function() {
    */
   async function getNewsSentiment(symbol) {
     if (!hasKey()) return [];
+    var cached = _shortCacheGet(symbol, 'sentiment');
+    if (cached) { console.log('[AV] Cache hit: sentiment/' + symbol); return cached; }
     try {
       var data = await avGet('function=NEWS_SENTIMENT&tickers=' + encodeURIComponent(symbol) + '&limit=15&sort=LATEST');
       if (!data || !data.feed || !data.feed.length) return [];
-      return data.feed.slice(0, 15).map(function(a) {
+      var result = data.feed.slice(0, 15).map(function(a) {
         var tickerData = null;
         if (a.ticker_sentiment) {
           tickerData = a.ticker_sentiment.find(function(ts) {
@@ -253,6 +270,8 @@ var AlphaAPI = (function() {
           } : null,
         };
       });
+      _cacheSet(symbol, 'sentiment', result);
+      return result;
     } catch (e) {
       console.warn('AV news sentiment error:', e.message);
       return [];
@@ -324,12 +343,16 @@ var AlphaAPI = (function() {
    */
   async function getRSI(symbol) {
     if (!hasKey()) return [];
+    var cached = _shortCacheGet(symbol, 'rsi');
+    if (cached) { console.log('[AV] Cache hit: rsi/' + symbol); return cached; }
     try {
       var data = await avGet('function=RSI&symbol=' + encodeURIComponent(symbol) + '&interval=daily&time_period=14&series_type=close');
       if (!data || !data['Technical Analysis: RSI']) return [];
       var raw = data['Technical Analysis: RSI'];
       var dates = Object.keys(raw).sort().reverse().slice(0, 30);
-      return dates.map(function(d) { return { date: d, rsi: parseFloat(raw[d].RSI) }; });
+      var result = dates.map(function(d) { return { date: d, rsi: parseFloat(raw[d].RSI) }; });
+      _cacheSet(symbol, 'rsi', result);
+      return result;
     } catch (e) { console.warn('AV RSI error:', e.message); return []; }
   }
 
@@ -339,12 +362,14 @@ var AlphaAPI = (function() {
    */
   async function getMACD(symbol) {
     if (!hasKey()) return [];
+    var cached = _shortCacheGet(symbol, 'macd');
+    if (cached) { console.log('[AV] Cache hit: macd/' + symbol); return cached; }
     try {
       var data = await avGet('function=MACD&symbol=' + encodeURIComponent(symbol) + '&interval=daily&series_type=close');
       if (!data || !data['Technical Analysis: MACD']) return [];
       var raw = data['Technical Analysis: MACD'];
       var dates = Object.keys(raw).sort().reverse().slice(0, 30);
-      return dates.map(function(d) {
+      var result = dates.map(function(d) {
         return {
           date: d,
           macd: parseFloat(raw[d].MACD),
@@ -352,6 +377,8 @@ var AlphaAPI = (function() {
           histogram: parseFloat(raw[d].MACD_Hist),
         };
       });
+      _cacheSet(symbol, 'macd', result);
+      return result;
     } catch (e) { console.warn('AV MACD error:', e.message); return []; }
   }
 
@@ -361,12 +388,17 @@ var AlphaAPI = (function() {
    */
   async function getSMA(symbol, period) {
     if (!hasKey()) return [];
+    var cacheLabel = 'sma' + (period || 50);
+    var cached = _shortCacheGet(symbol, cacheLabel);
+    if (cached) { console.log('[AV] Cache hit: ' + cacheLabel + '/' + symbol); return cached; }
     try {
       var data = await avGet('function=SMA&symbol=' + encodeURIComponent(symbol) + '&interval=daily&time_period=' + (period || 50) + '&series_type=close');
       if (!data || !data['Technical Analysis: SMA']) return [];
       var raw = data['Technical Analysis: SMA'];
       var dates = Object.keys(raw).sort().reverse().slice(0, 30);
-      return dates.map(function(d) { return { date: d, sma: parseFloat(raw[d].SMA) }; });
+      var result = dates.map(function(d) { return { date: d, sma: parseFloat(raw[d].SMA) }; });
+      _cacheSet(symbol, cacheLabel, result);
+      return result;
     } catch (e) { console.warn('AV SMA error:', e.message); return []; }
   }
 

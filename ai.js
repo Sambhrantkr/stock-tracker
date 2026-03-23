@@ -575,24 +575,40 @@ const NewsAI = (() => {
    * Uses system persona + structured briefing for deeper, more rigorous analysis.
    * Increased token budget (1500) and temperature (0.5) for nuanced reasoning.
    */
-  async function generateVerdict(symbol, companyName, allData) {
+  async function generateVerdict(symbol, companyName, allData, isETF) {
     if (!hasKey()) throw new Error('Groq API key required.');
 
     // ── SYSTEM PERSONA (condensed) ──
-    var sysMsg = 'You are Marcus Chen, CFA, CMT — MD & Head of Cross-Asset Equity Research. 25yr veteran (GS, MS, own fund).\n';
-    sysMsg += 'Known for: calling inflection points early, rigorous multi-factor analysis, brutal honesty, quantitative price targets.\n\n';
-    sysMsg += 'ANALYTICAL FRAMEWORK (follow before writing verdict):\n';
-    sysMsg += '1. BUSINESS QUALITY: Moat, margins (gross/op/net), ROE, ROIC vs cost of capital\n';
-    sysMsg += '2. GROWTH: Revenue/EPS growth trajectory (1Y/3Y/5Y), organic vs acquired, guidance\n';
-    sysMsg += '3. FINANCIAL HEALTH: FCF, debt/equity, current ratio, cash, capex\n';
-    sysMsg += '4. VALUATION: P/E vs peers+history, EV/EBITDA, P/S, DCF if cash flow available. Price target MUST use one method.\n';
-    sysMsg += '   DCF: latest FCF base, 5Y growth from trend, WACC=10%, terminal=2.5-3%, shares=MCap/Price\n';
-    sysMsg += '5. CATALYSTS & RISKS: News-driven events that could move stock 10%+. Check news/macro sections carefully.\n';
-    sysMsg += '   New business lines (AI, robotaxis, etc.) can have outsized impact — reflect in price target.\n';
-    sysMsg += '6. SIGNAL CONVERGENCE: Do technicals, sentiment, insiders, analysts agree? Divergence = lower confidence.\n';
-    sysMsg += '7. SYNTHESIS: Integrate all factors. STRONG BUY/SELL need HIGH confidence + catalysts + valuation support.\n';
-    sysMsg += '8. EPS MOMENTUM: Rising estimates + beats = strong. Falling + misses = weak.\n\n';
-    sysMsg += 'RULES: No fabrication. Data SHOWS vs INFER. Be contrarian when supported. Specific price target. JSON only.';
+    var sysMsg;
+    if (isETF) {
+      sysMsg = 'You are Marcus Chen, CFA, CAIA — MD & Head of ETF & Passive Strategy Research. 25yr veteran (BlackRock, Vanguard, own fund).\n';
+      sysMsg += 'Known for: ETF selection, portfolio construction, cost analysis, tracking efficiency, sector rotation.\n\n';
+      sysMsg += 'ETF ANALYTICAL FRAMEWORK:\n';
+      sysMsg += '1. HOLDINGS ANALYSIS: Top holdings concentration, sector allocation, overlap risk, single-stock dominance\n';
+      sysMsg += '2. COST & STRUCTURE: Expense ratio, tracking error, AUM, liquidity, bid-ask spread\n';
+      sysMsg += '3. PERFORMANCE: Price momentum, relative to benchmark, risk-adjusted returns\n';
+      sysMsg += '4. MACRO ALIGNMENT: Does this ETF benefit from current macro regime? Sector tailwinds/headwinds?\n';
+      sysMsg += '5. TECHNICALS: Price trend, support/resistance, RSI, moving averages\n';
+      sysMsg += '6. NEWS & SENTIMENT: Fund flows, sector rotation signals, regulatory changes\n';
+      sysMsg += '7. RISK ASSESSMENT: Concentration risk, sector risk, liquidity risk, correlation to broad market\n';
+      sysMsg += '8. SYNTHESIS: Integrate all factors. Price target based on technical levels + macro outlook.\n\n';
+      sysMsg += 'RULES: No fabrication. ETFs have NO earnings, P/E, cash flow, insider trades, or DCF. Focus on holdings, cost, macro, technicals. JSON only.';
+    } else {
+      sysMsg = 'You are Marcus Chen, CFA, CMT — MD & Head of Cross-Asset Equity Research. 25yr veteran (GS, MS, own fund).\n';
+      sysMsg += 'Known for: calling inflection points early, rigorous multi-factor analysis, brutal honesty, quantitative price targets.\n\n';
+      sysMsg += 'ANALYTICAL FRAMEWORK (follow before writing verdict):\n';
+      sysMsg += '1. BUSINESS QUALITY: Moat, margins (gross/op/net), ROE, ROIC vs cost of capital\n';
+      sysMsg += '2. GROWTH: Revenue/EPS growth trajectory (1Y/3Y/5Y), organic vs acquired, guidance\n';
+      sysMsg += '3. FINANCIAL HEALTH: FCF, debt/equity, current ratio, cash, capex\n';
+      sysMsg += '4. VALUATION: P/E vs peers+history, EV/EBITDA, P/S, DCF if cash flow available. Price target MUST use one method.\n';
+      sysMsg += '   DCF: latest FCF base, 5Y growth from trend, WACC=10%, terminal=2.5-3%, shares=MCap/Price\n';
+      sysMsg += '5. CATALYSTS & RISKS: News-driven events that could move stock 10%+. Check news/macro sections carefully.\n';
+      sysMsg += '   New business lines (AI, robotaxis, etc.) can have outsized impact — reflect in price target.\n';
+      sysMsg += '6. SIGNAL CONVERGENCE: Do technicals, sentiment, insiders, analysts agree? Divergence = lower confidence.\n';
+      sysMsg += '7. SYNTHESIS: Integrate all factors. STRONG BUY/SELL need HIGH confidence + catalysts + valuation support.\n';
+      sysMsg += '8. EPS MOMENTUM: Rising estimates + beats = strong. Falling + misses = weak.\n\n';
+      sysMsg += 'RULES: No fabrication. Data SHOWS vs INFER. Be contrarian when supported. Specific price target. JSON only.';
+    }
 
     // ── BUILD COMPACT DATA BRIEFING (token-optimized) ──
     var b = '';
@@ -615,6 +631,146 @@ const NewsAI = (() => {
     if (allData.avOverview && allData.avOverview.Description) {
       b += allData.avOverview.Description.substring(0, 150) + '...\n';
     }
+
+    // ── ETF-SPECIFIC BRIEFING PATH ──
+    if (isETF) {
+      // ETF Holdings
+      b += '\n[ETF HOLDINGS]\n';
+      if (allData.etfHoldings && allData.etfHoldings.holdings && allData.etfHoldings.holdings.length) {
+        if (allData.etfHoldings.atDate) b += 'As of: ' + allData.etfHoldings.atDate + '\n';
+        var topWeight = 0;
+        allData.etfHoldings.holdings.slice(0, 15).forEach(function(h) {
+          b += h.symbol + ' (' + (h.name || '') + '): ' + (h.percent != null ? (h.percent * 100).toFixed(2) + '%' : 'N/A') + '\n';
+          if (h.percent) topWeight += h.percent;
+        });
+        b += 'Top ' + Math.min(15, allData.etfHoldings.holdings.length) + ' holdings = ' + (topWeight * 100).toFixed(1) + '% of fund\n';
+      } else { b += '[NO HOLDINGS DATA]\n'; }
+
+      // ETF Valuation (limited)
+      b += '\n[ETF METRICS]\n';
+      if (allData.financials) {
+        var ef = allData.financials;
+        b += 'Beta=' + (ef.beta || 'N/A') + ' | DivYield=' + (ef.dividendYield || 'N/A');
+        b += ' | 52W: ' + (ef.week52Low || 'N/A') + ' - ' + (ef.week52High || 'N/A') + '\n';
+      }
+
+      // Technicals
+      b += '\n[TECHNICALS]\n';
+      if (allData.technicalsResult) {
+        var tech = allData.technicalsResult;
+        b += 'Signal=' + (tech.signal || 'N/A');
+        if (tech.support) b += ' Sup=' + tech.support;
+        if (tech.resistance) b += ' Res=' + tech.resistance;
+        b += '\n';
+        if (tech.summary) b += tech.summary + '\n';
+      }
+      if (allData.rsiData && allData.rsiData.length) {
+        var rsiVal = allData.rsiData[0].rsi;
+        b += 'RSI=' + rsiVal.toFixed(1) + (rsiVal > 70 ? ' OVERBOUGHT' : rsiVal < 30 ? ' OVERSOLD' : '') + ' ';
+      }
+      if (allData.macdData && allData.macdData.length) {
+        b += 'MACD=' + allData.macdData[0].histogram.toFixed(3) + (allData.macdData[0].histogram >= 0 ? ' BULL' : ' BEAR') + ' ';
+      }
+      if (allData.sma50Data && allData.sma50Data.length && allData.sma200Data && allData.sma200Data.length) {
+        b += (allData.sma50Data[0].sma > allData.sma200Data[0].sma ? 'GOLDEN CROSS' : 'DEATH CROSS');
+        b += ' SMA50=' + allData.sma50Data[0].sma.toFixed(2) + ' SMA200=' + allData.sma200Data[0].sma.toFixed(2);
+      }
+      if (allData.rsiData || allData.macdData || allData.sma50Data) b += '\n';
+
+      // News & Sentiment
+      b += '\n[NEWS & SENTIMENT]\n';
+      if (allData.avSentiment && allData.avSentiment.length) {
+        var bullC = 0, bearC = 0, neutC = 0;
+        allData.avSentiment.forEach(function(s) {
+          if (s.tickerSentiment) {
+            var lbl = s.tickerSentiment.label.toLowerCase();
+            if (lbl.indexOf('bullish') !== -1) bullC++;
+            else if (lbl.indexOf('bearish') !== -1) bearC++;
+            else neutC++;
+          }
+        });
+        var sentT = bullC + bearC + neutC;
+        if (sentT > 0) b += 'Sentiment: Bull=' + bullC + ' Neut=' + neutC + ' Bear=' + bearC + ' (' + Math.round(bullC / sentT * 100) + '% bull)\n';
+      }
+      if (allData.articles && allData.articles.length) {
+        allData.articles.slice(0, 5).forEach(function(a) {
+          b += '- ' + a.title;
+          if (a.summary) b += ' | ' + a.summary.substring(0, 100);
+          b += '\n';
+        });
+      }
+      if (allData.macroArticles && allData.macroArticles.length) {
+        b += 'Macro Headlines:\n';
+        allData.macroArticles.slice(0, 4).forEach(function(a) {
+          b += '- ' + a.title;
+          if (a.summary) b += ' | ' + a.summary.substring(0, 100);
+          b += '\n';
+        });
+      }
+
+      // AI Sub-analyst summaries
+      b += '\n[AI ANALYSES]\n';
+      if (allData.aiResult) {
+        b += 'NEWS: ' + (allData.aiResult.longTermOutlook || 'N/A') + ' -- ' + (allData.aiResult.summary || '') + '\n';
+      }
+      if (allData.macroAIResult) {
+        var mai = allData.macroAIResult;
+        b += 'MACRO: ' + (mai.impact || 'N/A') + ' -- ' + (mai.summary || '');
+        if (mai.macroRegime) b += ' Regime: ' + mai.macroRegime;
+        b += '\n';
+      }
+      if (allData.technicalsResult) {
+        b += 'TECHNICALS: Signal=' + (allData.technicalsResult.signal || 'N/A') + ' -- ' + (allData.technicalsResult.summary || '') + '\n';
+      }
+
+      // Data coverage
+      var dataAvail = 0, dataTotal = 0, missing = [];
+      function _chkE(ok, name) { dataTotal++; if (ok) dataAvail++; else missing.push(name); }
+      _chkE(allData.quote, 'Quote'); _chkE(allData.profile, 'Profile');
+      _chkE(allData.etfHoldings && allData.etfHoldings.holdings, 'Holdings');
+      _chkE(allData.articles && allData.articles.length, 'News');
+      _chkE(allData.macroAIResult, 'MacroAI'); _chkE(allData.technicalsResult, 'TechAI');
+      b += '\n[DATA] ' + dataAvail + '/' + dataTotal + ' sources.';
+      if (missing.length) b += ' Missing: ' + missing.join(', ');
+      b += '\n';
+
+      // ETF user prompt
+      var userMsg = 'Analyze this ETF briefing for ' + symbol + ' and deliver your verdict.\n\n';
+      userMsg += 'INSTRUCTIONS:\n';
+      userMsg += '- This is an ETF, NOT an individual stock. Do NOT reference earnings, P/E, cash flow, insider trades, or DCF.\n';
+      userMsg += '- Focus on: holdings concentration, sector exposure, macro alignment, technical levels, cost efficiency.\n';
+      userMsg += '- Price target should be based on technical analysis + macro outlook + sector momentum.\n';
+      userMsg += '- Assess concentration risk from top holdings.\n';
+      userMsg += '- News/macro catalysts MUST be reflected in your thesis and price target.\n\n';
+      userMsg += b;
+      userMsg += '\nRespond in EXACT JSON (no markdown):\n';
+      userMsg += '{"verdict":"STRONG BUY|BUY|HOLD|SELL|STRONG SELL","confidence":"HIGH|MEDIUM|LOW",';
+      userMsg += '"priceTarget":<number>,"timeHorizon":"12 months",';
+      userMsg += '"thinkingProcess":"4-6 sentences covering key analytical steps",';
+      userMsg += '"summary":"4-5 sentence thesis focused on ETF merits",';
+      userMsg += '"verdictReason":"2-3 sentences on price target derivation + method used",';
+      userMsg += '"dataQuality":"1 sentence on data gaps",';
+      userMsg += '"holdingsAnalysis":"2-3 sentences on top holdings, concentration, sector tilt",';
+      userMsg += '"sectorExposure":"primary sectors and allocation bias",';
+      userMsg += '"bull":["specific point with numbers"],"bear":["specific point"],';
+      userMsg += '"catalysts":[{"event":"...","timeline":"...","impact":"HIGH|MED|LOW"}],';
+      userMsg += '"risks":[{"risk":"...","severity":"HIGH|MED|LOW","mitigation":"..."}]}\n';
+      userMsg += 'Keep bull 3-4, bear 2-3, catalysts 2-3, risks 2-3. Be specific with numbers.';
+
+      var result = await groqFetch([
+        { role: 'system', content: sysMsg },
+        { role: 'user', content: userMsg }
+      ], 2000, 0.5, { model: MODEL_DEEP, timeoutMs: 60000 });
+
+      if (allData.quote) result.currentPrice = allData.quote.price;
+      if (result.priceTarget && allData.quote) {
+        result.upside = ((result.priceTarget - allData.quote.price) / allData.quote.price * 100).toFixed(1);
+      }
+      result._isETF = true;
+      return result;
+    }
+
+    // ── STOCK-SPECIFIC BRIEFING (original path) ──
 
     // ── SECTION 3: VALUATION METRICS ──
     b += '\n[VALUATION]\n';

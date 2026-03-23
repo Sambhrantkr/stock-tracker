@@ -894,16 +894,29 @@
     var missing = [];
     var stale = [];
     var ageMin = c._dataLoadedAt ? Math.round((Date.now() - c._dataLoadedAt) / 60000) : -1;
+    // Detect ETF from etfHoldings presence or check trackedStocks
+    var isETFData = !!(c.etfHoldings);
 
     // Core data
     if (c.quote) available.push('Quote'); else missing.push('Quote');
     if (c.profile && c.profile.name) available.push('Profile'); else missing.push('Profile');
-    if (c.financials && c.financials.peRatio) available.push('Financials'); else missing.push('Financials');
+    if (!isETFData) {
+      if (c.financials && c.financials.peRatio) available.push('Financials'); else missing.push('Financials');
+    }
     if (c.articles && c.articles.length) available.push('News (' + c.articles.length + ')'); else missing.push('News');
     if (c.recommendations && c.recommendations.length) available.push('Analyst Ratings'); else missing.push('Analyst Ratings');
-    if (c.earnings && c.earnings.length) available.push('Earnings (' + c.earnings.length + 'Q)'); else missing.push('Earnings');
+    if (!isETFData) {
+      if (c.earnings && c.earnings.length) available.push('Earnings (' + c.earnings.length + 'Q)'); else missing.push('Earnings');
+    }
     if (c.macroArticles && c.macroArticles.length) available.push('Macro News'); else missing.push('Macro News');
-    if (c.insiderTrades && c.insiderTrades.length) available.push('Insider Trades'); else missing.push('Insider Trades');
+    if (!isETFData) {
+      if (c.insiderTrades && c.insiderTrades.length) available.push('Insider Trades'); else missing.push('Insider Trades');
+    }
+
+    // ETF-specific
+    if (isETFData) {
+      if (c.etfHoldings && c.etfHoldings.holdings && c.etfHoldings.holdings.length) available.push('ETF Holdings (' + c.etfHoldings.holdings.length + ')'); else missing.push('ETF Holdings');
+    }
 
     // Optional data
     if (c.avOverview && c.avOverview.Description) available.push('Company Overview');
@@ -911,18 +924,22 @@
     if (c.rsiData && c.rsiData.length) available.push('RSI');
     if (c.macdData && c.macdData.length) available.push('MACD');
     if (c.sma50Data && c.sma50Data.length) available.push('SMA');
-    if (c.peers && c.peers.length) available.push('Peers (' + c.peers.length + ')');
-    if (c.cashFlowData && c.cashFlowData.length) available.push('Cash Flow');
-    if (c.balanceSheetData && c.balanceSheetData.length) available.push('Balance Sheet');
-    if (c.epsEstimates && c.epsEstimates.quarterly && c.epsEstimates.quarterly.length) available.push('EPS Estimates');
-    if (c.incomeData && c.incomeData.length) available.push('Revenue & Income');
+    if (!isETFData) {
+      if (c.peers && c.peers.length) available.push('Peers (' + c.peers.length + ')');
+      if (c.cashFlowData && c.cashFlowData.length) available.push('Cash Flow');
+      if (c.balanceSheetData && c.balanceSheetData.length) available.push('Balance Sheet');
+      if (c.epsEstimates && c.epsEstimates.quarterly && c.epsEstimates.quarterly.length) available.push('EPS Estimates');
+      if (c.incomeData && c.incomeData.length) available.push('Revenue & Income');
+    }
 
     // AI analyses
     if (c.aiResult) available.push('AI News'); else if (c.articles && c.articles.length) stale.push('AI News');
     if (c.analystAIResult) available.push('AI Analyst'); else if (c.recommendations && c.recommendations.length) stale.push('AI Analyst');
     if (c.macroAIResult) available.push('AI Macro'); else if (c.macroArticles && c.macroArticles.length) stale.push('AI Macro');
-    if (c.transcriptAIResult) available.push('AI Transcript');
-    if (c.fundamentalsResult) available.push('AI Fundamentals');
+    if (!isETFData) {
+      if (c.transcriptAIResult) available.push('AI Transcript');
+      if (c.fundamentalsResult) available.push('AI Fundamentals');
+    }
     if (c.technicalsResult) available.push('AI Technicals');
 
     var freshness = ageMin < 0 ? 'unknown' : ageMin < 1 ? 'just now' : ageMin + ' min ago';
@@ -940,10 +957,12 @@
     var btn = document.getElementById('detail-verdict-btn');
     var c = cache[symbol];
     if (!NewsAI.hasKey() || !c) return null;
+    var stockInfo = trackedStocks.find(function(t) { return t.symbol === symbol; }) || {};
+    var isETF = stockInfo.type === 'ETF';
     _verdictInProgress[symbol] = 'Preparing...';
     if (selectedSymbol === symbol) { btn.disabled = true; btn.textContent = 'Preparing\u2026'; }
     var step = 0;
-    var totalSteps = 14;
+    var totalSteps = isETF ? 7 : 14;
     function progress(msg) {
       step++;
       _verdictInProgress[symbol] = msg + ' (Step ' + step + '/' + totalSteps + ')';
@@ -975,36 +994,36 @@
       c = cache[symbol];
     }
 
-    // Cash flow
-    if (AlphaAPI.hasKey() && (!c.cashFlowData || !c.cashFlowData.length)) {
+    // Cash flow (stocks only)
+    if (!isETF && AlphaAPI.hasKey() && (!c.cashFlowData || !c.cashFlowData.length)) {
       progress('\uD83D\uDCB5 Loading cash flow data...');
       try { await loadCashFlowData(symbol); } catch(e) { console.warn('Cash flow:', e.message); }
       c = cache[symbol];
     }
 
-    // Balance sheet
-    if (AlphaAPI.hasKey() && (!c.balanceSheetData || !c.balanceSheetData.length)) {
+    // Balance sheet (stocks only)
+    if (!isETF && AlphaAPI.hasKey() && (!c.balanceSheetData || !c.balanceSheetData.length)) {
       progress('\uD83C\uDFE6 Loading balance sheet...');
       try { await loadBalanceSheetData(symbol); } catch(e) { console.warn('Balance sheet:', e.message); }
       c = cache[symbol];
     }
 
-    // Revenue & income
-    if (AlphaAPI.hasKey() && (!c.incomeData || !c.incomeData.length)) {
+    // Revenue & income (stocks only)
+    if (!isETF && AlphaAPI.hasKey() && (!c.incomeData || !c.incomeData.length)) {
       progress('\uD83D\uDCB0 Loading revenue & income data...');
       try { await loadRevenueData(symbol); } catch(e) { console.warn('Revenue:', e.message); }
       c = cache[symbol];
     }
 
-    // EPS estimates
-    if (StockAPI.hasKey() && (!c.epsEstimates || !c.epsEstimates.quarterly || !c.epsEstimates.quarterly.length)) {
+    // EPS estimates (stocks only)
+    if (!isETF && StockAPI.hasKey() && (!c.epsEstimates || !c.epsEstimates.quarterly || !c.epsEstimates.quarterly.length)) {
       progress('\uD83D\uDCC8 Loading EPS estimates...');
       try { await loadEPSEstimates(symbol); } catch(e) { console.warn('EPS estimates:', e.message); }
       c = cache[symbol];
     }
 
-    // Peer comparison
-    if (StockAPI.hasKey() && (!c.peers || !c.peers.length)) {
+    // Peer comparison (stocks only)
+    if (!isETF && StockAPI.hasKey() && (!c.peers || !c.peers.length)) {
       progress('\uD83D\uDC65 Loading peer comparison...');
       try { await loadPeerData(symbol); } catch(e) { console.warn('Peers:', e.message); }
       c = cache[symbol];
@@ -1034,15 +1053,15 @@
       c = cache[symbol];
     }
 
-    // Transcript AI
-    if (!c.transcriptAIResult && NewsAI.hasKey()) {
+    // Transcript AI (stocks only)
+    if (!isETF && !c.transcriptAIResult && NewsAI.hasKey()) {
       progress('\uD83E\uDD16 AI analyzing earnings call...');
       try { await runTranscriptSummary(symbol); } catch(e) { console.warn('Transcript AI:', e.message); }
       c = cache[symbol];
     }
 
-    // Fundamentals AI
-    if (!c.fundamentalsResult && NewsAI.hasKey()) {
+    // Fundamentals AI (stocks only)
+    if (!isETF && !c.fundamentalsResult && NewsAI.hasKey()) {
       progress('\uD83E\uDD16 AI analyzing fundamentals...');
       try { await loadFundamentalsData(symbol); } catch(e) { console.warn('Fundamentals AI:', e.message); }
       c = cache[symbol];
@@ -1057,7 +1076,8 @@
       c.verdictResult = await NewsAI.generateVerdict(
         symbol,
         c.profile ? c.profile.name : symbol,
-        c
+        c,
+        isETF
       );
       delete _verdictInProgress[symbol];
       if (selectedSymbol === symbol) renderVerdictHTML(contentEl, c.verdictResult);
@@ -1137,8 +1157,24 @@
       h += '<div class="verdict-data-quality">\uD83D\uDCCA Data Quality: ' + v.dataQuality + '</div>';
     }
 
-    // DCF / Intrinsic Value
-    if (v.intrinsicValue != null) {
+    // ETF-specific: Holdings Analysis & Sector Exposure
+    if (v._isETF || v.holdingsAnalysis || v.sectorExposure) {
+      if (v.holdingsAnalysis) {
+        h += '<div class="verdict-dcf">';
+        h += '<div class="verdict-dcf-title">\uD83C\uDFE6 Holdings Analysis</div>';
+        h += '<div class="verdict-dcf-assumptions">' + v.holdingsAnalysis + '</div>';
+        h += '</div>';
+      }
+      if (v.sectorExposure) {
+        h += '<div class="verdict-dcf">';
+        h += '<div class="verdict-dcf-title">\uD83C\uDF10 Sector Exposure</div>';
+        h += '<div class="verdict-dcf-assumptions">' + v.sectorExposure + '</div>';
+        h += '</div>';
+      }
+    }
+
+    // DCF / Intrinsic Value (stocks only — skip for ETFs)
+    if (v.intrinsicValue != null && !v._isETF) {
       var ivNum = parseFloat(v.intrinsicValue);
       var curPrice = v.currentPrice || 0;
       var ivDiff = curPrice > 0 ? ((ivNum - curPrice) / curPrice * 100).toFixed(1) : '0';
@@ -3712,6 +3748,8 @@
     activeAutoRunSymbol = symbol;
     var c = cache[symbol];
     if (!c) return;
+    var stockInfo = trackedStocks.find(function(t) { return t.symbol === symbol; }) || {};
+    var isETF = stockInfo.type === 'ETF';
     // News AI
     if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
     if (c.articles && c.articles.length && !c.aiResult) {
@@ -3735,7 +3773,8 @@
         await runMacroAnalysis(symbol);
       } catch (e) { console.warn('Auto AI macro error:', e.message); }
     }
-    // Transcript / Earnings Call AI
+    // Transcript / Earnings Call AI (stocks only)
+    if (!isETF) {
     if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
     c = cache[symbol];
     if (c && !c.transcriptAIResult && NewsAI.hasKey()) {
@@ -3747,6 +3786,7 @@
         } catch (e) { console.warn('Auto AI transcript error:', e.message); }
       }
     }
+    }
     // Technicals AI (loads RSI, MACD, SMA from AV then runs AI analysis)
     if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
     c = cache[symbol];
@@ -3755,7 +3795,8 @@
         await loadTechnicalsData(symbol);
       } catch (e) { console.warn('Auto technicals error:', e.message); }
     }
-    // Fundamentals & Sentiment AI (loads AV overview + sentiment then runs AI)
+    // Fundamentals & Sentiment AI (stocks only)
+    if (!isETF) {
     if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
     c = cache[symbol];
     if (c && !c.fundamentalsResult) {
@@ -3763,8 +3804,10 @@
         await loadFundamentalsData(symbol);
       } catch (e) { console.warn('Auto fundamentals error:', e.message); }
     }
+    }
 
-    // Revenue & Income (AV call)
+    // Revenue & Income (AV call, stocks only)
+    if (!isETF) {
     if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
     c = cache[symbol];
     if (c && AlphaAPI.hasKey() && (!c.incomeData || !c.incomeData.length)) {
@@ -3772,7 +3815,9 @@
         await loadRevenueData(symbol);
       } catch (e) { console.warn('Auto revenue error:', e.message); }
     }
-    // Cash Flow (AV call)
+    }
+    // Cash Flow (AV call, stocks only)
+    if (!isETF) {
     if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
     c = cache[symbol];
     if (c && AlphaAPI.hasKey() && (!c.cashFlowData || !c.cashFlowData.length)) {
@@ -3780,13 +3825,16 @@
         await loadCashFlowData(symbol);
       } catch (e) { console.warn('Auto cash flow error:', e.message); }
     }
-    // Balance Sheet (AV call)
+    }
+    // Balance Sheet (AV call, stocks only)
+    if (!isETF) {
     if (selectedSymbol !== symbol || activeAutoRunSymbol !== symbol) return;
     c = cache[symbol];
     if (c && AlphaAPI.hasKey() && (!c.balanceSheetData || !c.balanceSheetData.length)) {
       try {
         await loadBalanceSheetData(symbol);
       } catch (e) { console.warn('Auto balance sheet error:', e.message); }
+    }
     }
 
     // Auto-load peer comparison (after AI tiles to avoid Finnhub rate limit contention)
@@ -4192,15 +4240,118 @@
     portfolioBriefContent.innerHTML = h;
     portfolioBriefModal.classList.remove('hidden');
 
-    // Wire email button
+    // Wire email button — send the portfolio brief as the email (not the raw verdicts)
     var emailBtn = document.getElementById('portfolio-brief-email-btn');
     if (emailBtn) {
       emailBtn.addEventListener('click', function() {
-        if (emailHTML) {
-          openMorningReportEmail(emailHTML, results);
-        } else {
-          showWarning('Email report not available.');
+        // Build email HTML from the portfolio brief content
+        var today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        var eh = '';
+        eh += '<div style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto;background:#0f1117;color:#e2e8f0;padding:20px;">';
+        eh += '<h2 style="color:#6366f1;margin:0 0 4px;">Portfolio Morning Brief</h2>';
+        eh += '<p style="color:#888;font-size:13px;margin:0 0 16px;">' + today + ' | ' + results.length + ' stocks analyzed | Victoria Park, Senior Portfolio Strategist</p>';
+
+        // Verdict + Risk
+        eh += '<div style="margin-bottom:14px;">';
+        eh += '<span style="font-size:18px;font-weight:700;color:' + vc + ';">' + (brief.portfolioVerdict || 'N/A') + '</span>';
+        eh += ' &nbsp; <span style="padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;background:' + rc + '22;color:' + rc + ';border:1px solid ' + rc + '44;">Risk: ' + (brief.riskLevel || 'N/A') + '</span>';
+        eh += '</div>';
+
+        // Summary
+        if (brief.summary) {
+          eh += '<p style="color:#cbd5e1;font-size:14px;line-height:1.5;margin:0 0 16px;padding:10px 12px;background:#1e293b;border-radius:6px;border-left:3px solid ' + vc + ';">' + brief.summary + '</p>';
         }
+
+        // Top Pick & Top Risk
+        if ((brief.topPick && brief.topPick.symbol) || (brief.topRisk && brief.topRisk.symbol)) {
+          eh += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;"><tr>';
+          if (brief.topPick && brief.topPick.symbol) {
+            eh += '<td style="padding:10px 12px;background:#052e16;border:1px solid #166534;border-radius:6px;vertical-align:top;width:50%;">';
+            eh += '<div style="font-size:11px;color:#4ade80;font-weight:600;">TOP PICK</div>';
+            eh += '<div style="font-size:16px;font-weight:700;color:#22c55e;">' + brief.topPick.symbol + '</div>';
+            eh += '<div style="font-size:12px;color:#86efac;">' + (brief.topPick.reason || '') + '</div></td>';
+          }
+          if (brief.topRisk && brief.topRisk.symbol) {
+            eh += '<td style="padding:10px 12px;background:#2a0a0a;border:1px solid #7f1d1d;border-radius:6px;vertical-align:top;width:50%;">';
+            eh += '<div style="font-size:11px;color:#f87171;font-weight:600;">TOP RISK</div>';
+            eh += '<div style="font-size:16px;font-weight:700;color:#ef4444;">' + brief.topRisk.symbol + '</div>';
+            eh += '<div style="font-size:12px;color:#fca5a5;">' + (brief.topRisk.reason || '') + '</div></td>';
+          }
+          eh += '</tr></table>';
+        }
+
+        // Actions table
+        if (brief.actions && brief.actions.length) {
+          eh += '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;">';
+          eh += '<thead><tr style="background:#1e293b;">';
+          eh += '<th style="padding:8px 10px;text-align:left;color:#94a3b8;border:1px solid #333;">Stock</th>';
+          eh += '<th style="padding:8px 10px;text-align:center;color:#94a3b8;border:1px solid #333;">Action</th>';
+          eh += '<th style="padding:8px 10px;text-align:center;color:#94a3b8;border:1px solid #333;">Urgency</th>';
+          eh += '<th style="padding:8px 10px;text-align:left;color:#94a3b8;border:1px solid #333;">Reason</th>';
+          eh += '</tr></thead><tbody>';
+          brief.actions.forEach(function(a, idx) {
+            var bg = idx % 2 === 0 ? '#0f1117' : '#1e293b';
+            var ac = actionColors[a.action] || '#888';
+            eh += '<tr style="background:' + bg + ';color:#e2e8f0;">';
+            eh += '<td style="padding:8px 10px;border:1px solid #333;font-weight:600;">' + (a.symbol || '') + '</td>';
+            eh += '<td style="padding:8px 10px;border:1px solid #333;text-align:center;color:' + ac + ';font-weight:700;">' + (a.action || '') + '</td>';
+            eh += '<td style="padding:8px 10px;border:1px solid #333;text-align:center;">' + (a.urgency || '') + '</td>';
+            eh += '<td style="padding:8px 10px;border:1px solid #333;font-size:12px;">' + (a.reason || '') + '</td>';
+            eh += '</tr>';
+          });
+          eh += '</tbody></table>';
+        }
+
+        // Sector Exposure
+        if (brief.sectorExposure) {
+          eh += '<div style="padding:8px 12px;background:#1e293b;border-radius:6px;margin-bottom:10px;font-size:13px;">';
+          eh += '<span style="color:#60a5fa;font-weight:600;">Sector Exposure:</span> <span style="color:#cbd5e1;">' + brief.sectorExposure + '</span></div>';
+        }
+
+        // Portfolio Risks
+        if (brief.portfolioRisks && brief.portfolioRisks.length) {
+          eh += '<div style="padding:8px 12px;background:#1a0a0a;border:1px solid #7f1d1d33;border-radius:6px;margin-bottom:10px;">';
+          eh += '<div style="color:#f87171;font-weight:600;font-size:12px;margin-bottom:4px;">Portfolio Risks</div>';
+          brief.portfolioRisks.forEach(function(r) {
+            eh += '<div style="color:#fca5a5;font-size:13px;padding:2px 0;">- ' + r + '</div>';
+          });
+          eh += '</div>';
+        }
+
+        // Week Ahead
+        if (brief.weekAhead) {
+          eh += '<div style="padding:8px 12px;background:#172554;border:1px solid #1e40af33;border-radius:6px;margin-bottom:10px;">';
+          eh += '<div style="color:#60a5fa;font-weight:600;font-size:12px;margin-bottom:4px;">Week Ahead</div>';
+          eh += '<div style="color:#93c5fd;font-size:13px;line-height:1.5;">' + brief.weekAhead + '</div>';
+          eh += '</div>';
+        }
+
+        eh += '<p style="color:#64748b;font-size:11px;margin-top:16px;">Victoria Park, Senior Portfolio Strategist | Generated by Stock Tracker AI | Not financial advice</p>';
+        eh += '</div>';
+
+        // Build plain text for mailto
+        var plainBody = 'PORTFOLIO MORNING BRIEF\n' + today + '\n';
+        plainBody += '=======================================\n\n';
+        plainBody += 'VERDICT: ' + (brief.portfolioVerdict || 'N/A') + ' | Risk: ' + (brief.riskLevel || 'N/A') + '\n\n';
+        if (brief.summary) plainBody += brief.summary + '\n\n';
+        if (brief.topPick && brief.topPick.symbol) plainBody += 'TOP PICK: ' + brief.topPick.symbol + ' — ' + (brief.topPick.reason || '') + '\n';
+        if (brief.topRisk && brief.topRisk.symbol) plainBody += 'TOP RISK: ' + brief.topRisk.symbol + ' — ' + (brief.topRisk.reason || '') + '\n';
+        if (brief.actions && brief.actions.length) {
+          plainBody += '\nACTIONS:\n';
+          brief.actions.forEach(function(a) {
+            plainBody += '  ' + (a.symbol || '') + ': ' + (a.action || '') + ' (' + (a.urgency || '') + ') — ' + (a.reason || '') + '\n';
+          });
+        }
+        if (brief.sectorExposure) plainBody += '\nSECTOR EXPOSURE: ' + brief.sectorExposure + '\n';
+        if (brief.portfolioRisks && brief.portfolioRisks.length) {
+          plainBody += '\nPORTFOLIO RISKS:\n';
+          brief.portfolioRisks.forEach(function(r) { plainBody += '  - ' + r + '\n'; });
+        }
+        if (brief.weekAhead) plainBody += '\nWEEK AHEAD: ' + brief.weekAhead + '\n';
+        plainBody += '\n---------------------------------------\n';
+        plainBody += 'Victoria Park, Senior Portfolio Strategist | Not financial advice\n';
+
+        openMorningReportEmail(eh, plainBody);
       });
     }
 
@@ -4356,10 +4507,10 @@
       } catch (e) {
         console.warn('Portfolio brief failed:', e.message);
         // Brief failed — fall back to sending email directly
-        openMorningReportEmail(emailHTML, results);
+        openMorningReportEmail(emailHTML, buildFallbackPlainText(results));
       }
     } else {
-      openMorningReportEmail(emailHTML, results);
+      openMorningReportEmail(emailHTML, buildFallbackPlainText(results));
     }
 
     // Open mailto or copy to clipboard
@@ -4451,32 +4602,23 @@
     return h;
   }
 
-  function openMorningReportEmail(html, results) {
-    // Build plain text version for mailto (email clients have URL length limits)
+  function buildFallbackPlainText(results) {
     var today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-    var subject = 'Stock Tracker Morning Report — ' + today;
-    var body = 'STOCK TRACKER — MORNING REPORT\n' + today + '\n';
+    var body = 'STOCK TRACKER MORNING REPORT\n' + today + '\n';
     body += '=======================================\n\n';
-
     results.forEach(function(v) {
-      var changeVal = v._change || 0;
-      var changeSign = changeVal >= 0 ? '+' : '';
-      var upsideVal = parseFloat(v.upside || 0);
-      var upsideSign = upsideVal >= 0 ? '+' : '';
-      body += v._symbol + ' (' + v._name + ')\n';
-      body += '  Price: $' + (v._price ? v._price.toFixed(2) : 'N/A') + ' (' + changeSign + changeVal.toFixed(2) + '%)\n';
-      body += '  Verdict: ' + (v.verdict || 'N/A') + ' | Confidence: ' + (v.confidence || 'N/A') + '\n';
-      body += '  Target: $' + (v.priceTarget ? v.priceTarget.toFixed(2) : 'N/A') + ' (' + upsideSign + (v.upside || '0') + '% upside)\n';
-      if (v.intrinsicValue != null) body += '  DCF Value: $' + parseFloat(v.intrinsicValue).toFixed(2) + '\n';
-      body += '  ' + (v.summary || '') + '\n';
-      if (v.verdictReason) body += '  Rationale: ' + v.verdictReason + '\n';
-      if (v.bull && v.bull.length) body += '  Bull: ' + v.bull.join(' | ') + '\n';
-      if (v.bear && v.bear.length) body += '  Bear: ' + v.bear.join(' | ') + '\n';
-      if (v.catalysts && v.catalysts.length) body += '  Catalysts: ' + v.catalysts.map(function(c) { return c.event + ' (' + c.timeline + ')'; }).join(' | ') + '\n';
+      body += v._symbol + ' (' + v._name + '): ' + (v.verdict || 'N/A') + ' | Target: ' + (v.priceTarget ? v.priceTarget.toFixed(2) : 'N/A') + ' | Upside: ' + (v.upside || '0') + '%\n';
+      if (v.summary) body += '  ' + v.summary + '\n';
       body += '\n';
     });
-    body += '---------------------------------------\n';
-    body += 'Generated by Stock Tracker AI | Not financial advice\n';
+    body += '---------------------------------------\nGenerated by Stock Tracker AI | Not financial advice\n';
+    return body;
+  }
+
+  function openMorningReportEmail(html, plainTextBody) {
+    var today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    var subject = 'Portfolio Morning Brief \u2014 ' + today;
+    var body = plainTextBody || '';
 
     // Copy rich HTML to clipboard for pasting into email
     var clipboardOk = false;
@@ -4508,36 +4650,27 @@
     }
 
     tryCopyToClipboard().catch(function() {}).finally(function() {
-      // Build mailto URL
       var email = localStorage.getItem('report_email') || '';
       var mailtoBody = body;
-      // Modern email clients handle long mailto URLs (Outlook/Thunderbird ~32K, Gmail ~8K)
-      // Encode first, then check total URL length
       var encodedBody = encodeURIComponent(mailtoBody);
       var encodedSubject = encodeURIComponent(subject);
       var baseUrl = 'mailto:' + encodeURIComponent(email) + '?subject=' + encodedSubject + '&body=';
       var totalLen = baseUrl.length + encodedBody.length;
 
-      // If total URL exceeds 15000 chars, progressively trim the body
-      // This keeps the full report for most portfolios (5-8 stocks)
       if (totalLen > 15000) {
-        // Try trimming to fit — remove bull/bear lines first by shortening body
-        var maxRawChars = Math.floor(15000 / 3); // rough ratio for encodeURIComponent
-        mailtoBody = body.substring(0, maxRawChars) + '\n\n--- Report trimmed for email. Full report on clipboard — paste into email body. ---';
+        var maxRawChars = Math.floor(15000 / 3);
+        mailtoBody = body.substring(0, maxRawChars) + '\n\n--- Report trimmed for email. Full report on clipboard \u2014 paste into email body. ---';
         encodedBody = encodeURIComponent(mailtoBody);
       }
 
       var mailto = baseUrl + encodedBody;
 
-      // Use location.href for mailto — more reliable than window.open
-      // window.open is blocked as a popup after async operations
       try {
         window.location.href = mailto;
       } catch(e) {}
 
-      // Show appropriate feedback
       if (clipboardOk) {
-        showWarning('Report copied to clipboard (rich HTML). Paste into your email body for the full report.', 10000);
+        showWarning('Portfolio brief copied to clipboard (rich HTML). Paste into your email body for the full formatted report.', 10000);
       } else {
         showWarning('Email client should open. If not, check your popup blocker settings.', 8000);
       }
@@ -4709,7 +4842,9 @@
 
     function buildStockContext(sym, c, isSelected) {
       var parts = [];
-      parts.push('=== ' + (isSelected ? 'CURRENTLY VIEWING: ' : '') + sym + ' ===');
+      var stockInfo = trackedStocks.find(function(t) { return t.symbol === sym; }) || {};
+      var typeLabel = stockInfo.type === 'ETF' ? ' [ETF]' : '';
+      parts.push('=== ' + (isSelected ? 'CURRENTLY VIEWING: ' : '') + sym + typeLabel + ' ===');
 
       // Quote
       if (c.quote) {
@@ -4836,6 +4971,14 @@
         var ov = c.avOverview;
         if (ov.Description && isSelected) parts.push('DESCRIPTION: ' + ov.Description.substring(0, 300));
         if (ov.PERatio) parts.push('AV P/E: ' + ov.PERatio + ' | PEG: ' + (ov.PEGRatio || 'N/A') + ' | P/B: ' + (ov.PriceToBookRatio || 'N/A'));
+      }
+
+      // ETF Holdings
+      if (c.etfHoldings && c.etfHoldings.holdings && c.etfHoldings.holdings.length) {
+        var topH = c.etfHoldings.holdings.slice(0, 10).map(function(h) {
+          return h.symbol + ' ' + (h.percent != null ? (h.percent * 100).toFixed(1) + '%' : '');
+        }).join(', ');
+        parts.push('ETF TOP HOLDINGS: ' + topH);
       }
 
       return parts.join('\n');
