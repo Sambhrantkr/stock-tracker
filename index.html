@@ -507,61 +507,36 @@
       </div>
     </div>
   </div>
-  <!-- Chat Assistant -->
-  <button id="chat-fab" class="chat-fab" aria-label="Open wealth advisor chat" title="Ask your Wealth Advisor">💬</button>
-  <!-- Screener Agent -->
-  <button id="screener-fab" class="screener-fab" aria-label="Open investment advisor" title="Investment Advisor">🔍</button>
-  <div id="screener-panel" class="screener-panel hidden">
+  <!-- Unified AI Advisor -->
+  <button id="advisor-fab" class="screener-fab" aria-label="Open AI Advisor" title="AI Advisor">💬</button>
+  <div id="advisor-panel" class="screener-panel hidden">
     <div class="screener-header">
-      <span class="screener-header-title">🔍 Investment Advisor</span>
+      <span class="screener-header-title" id="advisor-title">💬 AI Advisor</span>
       <div class="screener-header-actions">
-        <button id="screener-clear" class="chat-header-btn" title="Start over">🗑️</button>
-        <button id="screener-close" class="chat-header-btn" title="Close">✕</button>
+        <button id="advisor-clear" class="chat-header-btn" title="Start over">🗑️</button>
+        <button id="advisor-close" class="chat-header-btn" title="Close">✕</button>
       </div>
     </div>
-    <div id="screener-messages" class="chat-messages">
+    <div id="advisor-messages" class="chat-messages">
       <div class="chat-msg assistant">
-        <div class="chat-msg-content">Hey there! I'm Marcus, your personal investment advisor. I'm here to help you find the right stocks or ETFs — no Wall Street jargon required.
+        <div class="chat-msg-content">Hi, I'm your AI advisor — two experts in one place.
 
-Whether you're just starting out or have something specific in mind, I'll walk you through it step by step. What brings you here today? Are you looking to:
+Ask me anything:
+• <strong>Find stocks</strong> — "Find me high-growth tech stocks" or "Show me dividend ETFs"
+• <strong>Analyze your portfolio</strong> — "How's my portfolio looking?" or "Compare AAPL vs MSFT"
+• <strong>Get advice</strong> — "Should I buy NVDA?" or "What's my biggest risk?"
 
-• Grow your money over time?
-• Earn regular income from dividends?
-• Find something specific you've heard about?
-
-Just tell me in your own words — there's no wrong answer!</div>
+I'll route your question to the right specialist automatically.</div>
       </div>
     </div>
-    <div id="screener-thinking" class="chat-thinking hidden">
+    <div id="advisor-thinking" class="chat-thinking hidden">
       <div class="chat-thinking-dots"><span></span><span></span><span></span></div>
       <span class="chat-thinking-label">Thinking...</span>
     </div>
-    <div id="screener-results" class="screener-results hidden"></div>
-    <form id="screener-form" class="chat-input-area">
-      <input type="text" id="screener-input" class="chat-input" placeholder="Describe what you're looking for..." autocomplete="off" />
-      <button type="submit" id="screener-send" class="chat-send-btn">➤</button>
-    </form>
-  </div>
-  <div id="chat-panel" class="chat-panel hidden">
-    <div class="chat-header">
-      <span class="chat-header-title">🧠 Wealth Advisor</span>
-      <div class="chat-header-actions">
-        <button id="chat-clear" class="chat-header-btn" title="Clear conversation">🗑️</button>
-        <button id="chat-close" class="chat-header-btn" title="Close">✕</button>
-      </div>
-    </div>
-    <div id="chat-messages" class="chat-messages">
-      <div class="chat-msg assistant">
-        <div class="chat-msg-content">Hi, I'm your AI wealth advisor. I have full access to all the stock data loaded on your dashboard. Ask me anything — portfolio strategy, stock analysis, comparisons, or market outlook.</div>
-      </div>
-    </div>
-    <div id="chat-thinking" class="chat-thinking hidden">
-      <div class="chat-thinking-dots"><span></span><span></span><span></span></div>
-      <span class="chat-thinking-label">Thinking deeply...</span>
-    </div>
-    <form id="chat-form" class="chat-input-area">
-      <input type="text" id="chat-input" class="chat-input" placeholder="Ask about your stocks, portfolio, market..." autocomplete="off" />
-      <button type="submit" id="chat-send" class="chat-send-btn">➤</button>
+    <div id="advisor-results" class="screener-results hidden"></div>
+    <form id="advisor-form" class="chat-input-area">
+      <input type="text" id="advisor-input" class="chat-input" placeholder="Ask about stocks, portfolio, or find investments..." autocomplete="off" />
+      <button type="submit" id="advisor-send" class="chat-send-btn">➤</button>
     </form>
   </div>
 
@@ -569,6 +544,8 @@ Just tell me in your own words — there's no wrong answer!</div>
   <script src="api.js"></script>
   <script src="alpha.js"></script>
   <script src="ai.js"></script>
+  <script src="universe.js"></script>
+  <script src="advisor.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
