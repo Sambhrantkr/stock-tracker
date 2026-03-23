@@ -5242,7 +5242,7 @@
       screenResults = [];
       resultsEl.classList.add('hidden');
       resultsEl.innerHTML = '';
-      messagesEl.innerHTML = '<div class="chat-msg assistant"><div class="chat-msg-content">Conversation cleared. Tell me what kind of stocks or ETFs you\'re looking for.</div></div>';
+      messagesEl.innerHTML = '<div class="chat-msg assistant"><div class="chat-msg-content">Fresh start! So, what are you looking to invest in today? Tell me a bit about your goals and I\'ll help you find the right stocks.</div></div>';
     });
 
     function scrollBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
@@ -5270,7 +5270,7 @@
     // Build criteria display HTML
     function buildCriteriaHTML(criteria) {
       var h = '<div class="screener-criteria-box">';
-      h += '<div class="criteria-label">Screening Criteria</div>';
+      h += '<div class="criteria-label">Your Investment Criteria</div>';
       if (criteria.type && criteria.type !== 'both') {
         h += '<div class="screener-criteria-item">' + (criteria.type === 'etf' ? 'ETFs only' : 'Stocks only') + '</div>';
       }
@@ -5310,7 +5310,14 @@
 
       var symbols = [];
       try {
-        var data = await StockAPI.fhGet('/stock/symbol?exchange=US');
+        // /stock/symbol returns a large payload (~5MB) — use a longer timeout than fhGet's default 15s
+        var symUrl = 'https://finnhub.io/api/v1/stock/symbol?exchange=US&token=' + (StockAPI.getKey());
+        var controller = new AbortController();
+        var timeoutId = setTimeout(function() { controller.abort(); }, 45000);
+        var res = await fetch(symUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!res.ok) throw new Error('Finnhub HTTP ' + res.status);
+        var data = await res.json();
         if (Array.isArray(data)) {
           symbols = data
             .filter(function(s) {
@@ -5323,7 +5330,8 @@
             });
         }
       } catch(e) {
-        throw new Error('Failed to fetch stock universe: ' + e.message);
+        if (e.name === 'AbortError') throw new Error('Finnhub stock list request timed out (45s). Try again — it may be slow on first load.');
+        throw new Error('Failed to fetch stock universe: ' + (e.message || 'Network error'));
       }
 
       if (symbols.length < 50) throw new Error('Universe too small (' + symbols.length + '). Check Finnhub key.');
@@ -5706,7 +5714,7 @@
           editBtn.addEventListener('click', function() {
             yesBtn.disabled = true;
             editBtn.disabled = true;
-            appendMsg('assistant', 'Sure, what would you like to change? You can say things like:\n• "Lower the P/E to under 12"\n• "Add a minimum dividend yield of 3%"\n• "Include healthcare too"\n• "Remove the beta filter"');
+            appendMsg('assistant', 'No problem at all! What would you like to tweak? For example:\n• "I\'d prefer less risky stocks"\n• "Can we add a dividend requirement?"\n• "Focus on tech companies only"\n• "Remove the debt filter"\n\nJust tell me what feels right.');
             inputEl.focus();
           });
         }
